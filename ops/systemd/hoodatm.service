@@ -1,0 +1,21 @@
+[Unit]
+Description=HoodATM Next.js application
+After=network.target
+
+[Service]
+Type=simple
+User=hoodatm
+Group=hoodatm
+WorkingDirectory=/opt/hoodatm
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3000
+EnvironmentFile=-/etc/hoodatm.env
+ExecStart=/usr/local/bin/node /opt/hoodatm/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -15,14 +15,14 @@ The public repository contains the application and smart-contract source. Produc
 
 Requirements:
 
-- Node.js 20 or newer
+- Node.js 24.18.0 (pinned in `.nvmrc`)
 - npm
 
 Create a local environment file from the public template:
 
 ```bash
 cp .env.example .env.local
-npm install
+npm ci
 npm run dev
 ```
 
@@ -45,9 +45,12 @@ The following must never be committed:
 - WalletConnect project credentials
 - private keys, seed phrases, deployment keys, or operator credentials
 - player wallets linked to usernames, IP addresses, access codes, and OAuth tokens
-- server backups, release archives, logs, and production service configuration
+- server backups, release archives, logs, and machine-specific or secret-bearing production configuration
 
 Production registries are stored outside the application directory under `/var/lib/hoodatm` and are not part of this repository.
+
+For a complete new-computer setup and the sanitized Nginx/systemd files, see
+[RESTORE.md](RESTORE.md).
 
 ## Smart contracts
 
