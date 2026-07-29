@@ -212,7 +212,7 @@ export default function AdminPage() {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-lime-300/25 bg-lime-300/10 px-3 py-1.5 text-sm font-bold text-lime-200">
-              <ShieldCheck className="h-4 w-4" /> @rhoodatm only
+              <ShieldCheck className="h-4 w-4" /> @rhoodatm &amp; @1lxthvl
             </div>
             <h1 className="mt-5 text-4xl font-black tracking-tight text-white sm:text-5xl">Player devtools</h1>
             <p className="mt-4 text-lg leading-8 text-slate-300">
