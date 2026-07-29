@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 620" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">hoodATM pixel game logo</title><desc id="desc">A black and gold pixel ATM with a masked crew and red hoodATM lettering.</desc>
+  <rect width="720" height="620" fill="#080b0a"/>
+  <path d="M60 455V115h42V75h44V52h428v23h44v40h42v340H60Z" fill="#151914" stroke="#c99a45" stroke-width="10"/>
+  <path d="M105 436V135h36V99h438v36h36v301H105Z" fill="#101511" stroke="#5e6a55" stroke-width="6"/>
+  <path d="M125 165h58v158h-58zm412 0h58v158h-58z" fill="#1b221b"/>
+  <path d="M125 182h58m354 0h58M125 215h58m354 0h58" stroke="#9c793a" stroke-width="8"/>
+  <path d="M208 415V112h304v303H208Z" fill="#202226" stroke="#d1aa57" stroke-width="10"/>
+  <path d="M228 132h264v70H228Z" fill="#0b0d10" stroke="#484d52" stroke-width="6"/>
+  <text x="360" y="184" fill="#f0e7cf" font-family="monospace" font-size="50" font-weight="900" text-anchor="middle">HOOD</text>
+  <path d="M414 145h53l-6 12h-13v44h-15v-44h-20z" fill="#e34032"/><path d="M426 166h31" stroke="#e34032" stroke-width="12"/>
+  <path d="M245 220h230v132H245Z" fill="#111316" stroke="#080909" stroke-width="8"/>
+  <path d="M260 237h162v90H260Z" fill="#370a0a" stroke="#e13b31" stroke-width="6"/>
+  <path d="M315 249h52v64h-52z" fill="#c92d29"/><path d="M304 262h74v38h-74z" fill="#ee5a42"/><text x="341" y="291" fill="#ffe49a" font-family="monospace" font-size="32" font-weight="900" text-anchor="middle">$</text>
+  <path d="M438 240h24v16h-24zm0 28h24v16h-24zm0 28h24v16h-24z" fill="#d5b15a"/>
+  <path d="M244 364h232v44H244Z" fill="#2b2d2b" stroke="#0b0c0d" stroke-width="6"/><path d="M280 377h160v17H280Z" fill="#08090a"/><text x="360" y="395" fill="#d9b45d" font-family="monospace" font-size="13" font-weight="700" text-anchor="middle">CASH OUT</text>
+  <g stroke="#090a0b" stroke-width="8">
+    <path d="M72 484l26-110 52-28 56 42 12 96H72Z" fill="#181a1e"/><path d="M95 367l20-68 50-25 26 40-28 62z" fill="#101216"/><path d="M113 306h50v56h-50z" fill="#9d6547"/><path d="M104 333h70v38h-70z" fill="#121315"/><path d="M121 344h14m10 0h14" stroke="#d6aa50" stroke-width="5"/><path d="M104 297h68v-26h-68z" fill="#17191c"/>
+    <path d="M502 484l12-96 56-42 52 28 26 110H502Z" fill="#181a1e"/><path d="M529 376l-28-62 26-40 50 25 20 68z" fill="#101216"/><path d="M557 306h50v56h-50z" fill="#8d573e"/><path d="M546 333h70v38h-70z" fill="#121315"/><path d="M561 344h14m10 0h14" stroke="#d6aa50" stroke-width="5"/><path d="M548 297h68v-26h-68z" fill="#17191c"/>
+  </g>
+  <path d="M50 478h620v100H50z" fill="#11130f" stroke="#d0a957" stroke-width="10"/>
+  <text x="124" y="555" fill="#edf0e1" font-family="monospace" font-size="78" font-weight="900">HOOD</text>
+  <text x="460" y="555" fill="#e63a30" font-family="monospace" font-size="78" font-weight="900">ATM</text>
+  <path d="M76 582h568" stroke="#9b7737" stroke-width="8"/><path d="M240 72h240M264 88h192" stroke="#d4ad56" stroke-width="6"/>
+  <path d="M70 128l20-20m540 0 20 20M83 442l18 12m518-12-18 12" stroke="#d43b30" stroke-width="5"/>
+</svg>
