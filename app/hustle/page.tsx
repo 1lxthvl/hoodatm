@@ -47,6 +47,8 @@ export default function HustlePage() {
     withdrawalGrossLimit,
     withdrawalAvailableAt,
     dailyFarmPoolUsd,
+    dailyBaseFarmPoolUsd,
+    spendingFarmPoolUsd,
     effectivePowerShare,
     idleRewardPerHour,
     heatLevel,
@@ -227,7 +229,13 @@ export default function HustlePage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { icon: ShieldCheck, label: "Crew power", value: String(currentPlayer.power), color: "text-cyan-200" },
-          { icon: CircleDollarSign, label: "Farm-pool share", value: `${(effectivePowerShare * 100).toFixed(2)}%`, subvalue: `$${dailyFarmPoolUsd}/day fixed pool`, color: "text-amber-200" },
+          {
+            icon: CircleDollarSign,
+            label: "Farm-pool share",
+            value: `${(effectivePowerShare * 100).toFixed(2)}%`,
+            subvalue: `$${dailyFarmPoolUsd.toFixed(2)}/day · $${dailyBaseFarmPoolUsd.toFixed(2)} base + $${spendingFarmPoolUsd.toFixed(2)} recycled`,
+            color: "text-amber-200",
+          },
           { icon: Coins, label: "Earning rate per hour", value: `${formatGangster(idleRewardPerHour)}/hr`, subvalue: `${usdValue(idleRewardPerHour, price?.gangsterUsd)}/hr`, color: "text-lime-300" },
           { icon: Clock3, label: "Unclaimed balance", value: formatGangster(currentPlayer.unclaimed), subvalue: usdValue(currentPlayer.unclaimed, price?.gangsterUsd), color: "text-red-200" },
           { icon: Flame, label: "Heat", value: `${heatLevel}%`, subvalue: `${Math.round(heatMultiplier * 100)}% hustling power`, color: heatLevel >= 75 ? "text-red-300" : "text-orange-200" },
@@ -309,7 +317,7 @@ export default function HustlePage() {
         </div>
       </section>
 
-      <p className="text-center text-sm text-slate-500">Idle earnings come from a fixed daily pool and dilute as more effective power joins the network.</p>
+      <p className="text-center text-sm text-slate-500">The daily base farm is deterministically set between $5 and $10. It grows whenever $GANGSTER is spent because 25% of every gameplay payment is recycled into earnings, then the total dilutes across active network power.</p>
     </div>
   );
 }

@@ -17,10 +17,10 @@ const machines = [
 ];
 
 const gangsters = [
-  { name: "Hoodlum", tier: "Starter", power: "5", costUsd: 2.5, description: "Gain 5 power and share the fixed daily farm pool.", accent: "bg-gradient-to-br from-amber-400/30 to-orange-500/20", pattern: "pattern-amber", character: "rookie" as const },
+  { name: "Hoodlum", tier: "Starter", power: "5", costUsd: 2.5, description: "Gain 5 power and share the daily base plus recycled-spending farm pool.", accent: "bg-gradient-to-br from-amber-400/30 to-orange-500/20", pattern: "pattern-amber", character: "rookie" as const },
   { name: "Captain", tier: "Mid", power: "30", costUsd: 12.5, description: "Secure 30 power and a larger relative share of the daily farm.", accent: "bg-gradient-to-br from-fuchsia-500/30 to-pink-500/20", pattern: "pattern-fuchsia", character: "captain" as const },
   { name: "General", tier: "High", power: "135", costUsd: 50, description: "Command 135 power and control more of the daily farm.", accent: "bg-gradient-to-br from-cyan-500/30 to-sky-500/20", pattern: "pattern-cyan", character: "boss" as const },
-  { name: "OG", tier: "Elite", power: "750", costUsd: 250, description: "Hold 750 power and the strongest relative share of the fixed daily farm.", accent: "bg-gradient-to-br from-emerald-500/30 to-lime-500/20", pattern: "pattern-emerald", character: "legend" as const },
+  { name: "OG", tier: "Elite", power: "750", costUsd: 250, description: "Hold 750 power and the strongest relative share of the daily farm.", accent: "bg-gradient-to-br from-emerald-500/30 to-lime-500/20", pattern: "pattern-emerald", character: "legend" as const },
 ];
 
 const systems = [
@@ -28,7 +28,7 @@ const systems = [
   { title: "Hold $GANGSTER", text: "Keep at least $10 worth of $GANGSTER in the connected wallet to keep game access active." },
   { title: "Recruit gangsters", text: "Choose Hoodlum, Captain, General, or OG characters to add power to your account." },
   { title: "Build a Crew", text: "Run multiple active gangsters. Extra slots start at $10, double each time, and three slots make a Crew." },
-  { title: "Hustle", text: "Earn from the fixed daily farm according to your active power share across the network." },
+  { title: "Hustle", text: "Earn from the $5–$10 daily base plus 25% of recycled $GANGSTER spending according to your active network power share." },
   { title: "Manage heat", text: "Heat rises while hustling and gradually cuts the account's earning power." },
   { title: "Lay low", text: "Pause earnings to cool heat at 1% per minute and stay protected from player robberies." },
   { title: "Hit ATMs", text: "Take power-scaled shots at the Corner Store, Nightclub, Casino Floor, and Downtown Vault ATMs." },

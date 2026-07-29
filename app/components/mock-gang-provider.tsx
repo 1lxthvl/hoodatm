@@ -7,6 +7,10 @@ import { Address, isAddress } from "viem";
 import { wagmiConfig } from "../lib/wagmi-config";
 import { hoodAtmChain, hoodAtmGameAbi } from "../lib/robinhood-chain";
 import { getClaimTerms, type ClaimTerms } from "../lib/claim-economy";
+import {
+  GANGSTER_SPEND_FARM_SHARE,
+  getDailyBaseFarmPoolUsd,
+} from "../lib/daily-farm-economy";
 import { useGangsterPrice } from "./gangster-price-provider";
 
 export type GangMember = {
@@ -114,6 +118,8 @@ type MockGangContextValue = {
   withdrawalGrossLimit: number;
   withdrawalAvailableAt: number;
   dailyFarmPoolUsd: number;
+  dailyBaseFarmPoolUsd: number;
+  spendingFarmPoolUsd: number;
   effectivePowerShare: number;
   idleRewardPerHour: number;
   heatLevel: number;
@@ -169,7 +175,6 @@ const ONE_HOUR = 60 * 60 * 1000;
 const CURRENT_PLAYER_ID = "hoodrunner";
 const MOCK_QUALIFIED_REFERRALS = 0;
 const MOCK_AVERAGE_HELD_24H = 0;
-const DAILY_FARM_POOL_USD = 580;
 const SNITCH_COST_USD = 1;
 const GANG_CREATION_COST_USD = 10;
 const FIRST_EXTRA_GANGSTER_SLOT_USD = 10;
@@ -260,6 +265,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const [atmPoolContributions, setAtmPoolContributions] = useState<
     [number, number, number, number]
   >([0, 0, 0, 0]);
+  const [spendingFarmPoolTokens, setSpendingFarmPoolTokens] = useState(0);
   const [jailedUntil, setJailedUntil] = useState<Record<string, number>>({});
   const [claimLockedUntil, setClaimLockedUntil] = useState<Record<string, number>>({});
   const [snitchOpportunity, setSnitchOpportunity] = useState<MockGangContextValue["snitchOpportunity"]>(null);
@@ -293,7 +299,14 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     ? 0
     : Math.max(0, 1 - Math.floor(heatLevel / 3) / 100);
   const layingLowUntil = isHustling ? 0 : Number.MAX_SAFE_INTEGER;
-  const dailyFarmTokens = price ? DAILY_FARM_POOL_USD / price.gangsterUsd : 0;
+  const dailyBaseFarmPoolUsd = getDailyBaseFarmPoolUsd(currentTime);
+  const spendingFarmPoolUsd = price
+    ? spendingFarmPoolTokens * price.gangsterUsd
+    : 0;
+  const dailyFarmPoolUsd = dailyBaseFarmPoolUsd + spendingFarmPoolUsd;
+  const dailyFarmTokens = price
+    ? dailyBaseFarmPoolUsd / price.gangsterUsd + spendingFarmPoolTokens
+    : 0;
   const idleRewardPerHour =
     (dailyFarmTokens / 24) * effectivePowerShare * heatMultiplier * (characterEarningRate / 100);
   const robberyBonusRate = Math.min(qualifiedReferrals, 10) * 0.025;
@@ -314,6 +327,13 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     unclaimedSince > 0 ? unclaimedSince : null,
     currentTime,
   );
+
+  function routeGangsterSpendToFarmPool(amount: number) {
+    if (amount <= 0) return;
+    setSpendingFarmPoolTokens(
+      (current) => current + amount * GANGSTER_SPEND_FARM_SHARE,
+    );
+  }
 
   useEffect(() => {
     let lastAccruedAt = Date.now();
@@ -557,6 +577,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           : player
       )));
       setGangsterSlots(unlockedSlots);
+      routeGangsterSpendToFarmPool(nextGangsterSlotCostTokens);
       setActivities((current) => [{
         id: `crew-slot-${Date.now()}`,
         type: "hustle",
@@ -893,6 +914,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     setPlayers((current) => current.map((player) => (
       player.id === CURRENT_PLAYER_ID ? { ...player, claimed: player.claimed - cost } : player
     )));
+    routeGangsterSpendToFarmPool(cost);
     if (jailed) {
       setJailedUntil((current) => ({ ...current, [opportunity.attackerId]: Date.now() + THREE_HOURS }));
     }
@@ -916,6 +938,13 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     const cost = 2 / price.gangsterUsd;
     const roll = Math.random() * 100;
     const outcome = roll < 50 ? "delivered" : roll < 75 ? "caught" : "failed";
+    if (currentPlayer.claimed < cost) return;
+    setPlayers((current) => current.map((player) => (
+      player.id === CURRENT_PLAYER_ID
+        ? { ...player, claimed: player.claimed - cost }
+        : player
+    )));
+    routeGangsterSpendToFarmPool(cost);
     if (outcome === "delivered") {
       setJailPhones((current) => current + 1);
       if (snitchOpportunity) {
@@ -993,6 +1022,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           ? { ...player, claimed: player.claimed - gangCreationCostTokens }
           : player
       )));
+      routeGangsterSpendToFarmPool(gangCreationCostTokens);
     }
     setGang({
       name: cleanName,
@@ -1034,6 +1064,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         ? { ...player, claimed: player.claimed - gangJailbreakCostTokens }
         : player
     )));
+    routeGangsterSpendToFarmPool(gangJailbreakCostTokens);
     if (freed) {
       setJailedUntil((current) => ({ ...current, [playerId]: 0 }));
     }
@@ -1070,7 +1101,9 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     averageHeld24h,
     withdrawalGrossLimit,
     withdrawalAvailableAt,
-    dailyFarmPoolUsd: DAILY_FARM_POOL_USD,
+    dailyFarmPoolUsd,
+    dailyBaseFarmPoolUsd,
+    spendingFarmPoolUsd,
     effectivePowerShare,
     idleRewardPerHour,
     heatLevel,

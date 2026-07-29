@@ -16,7 +16,9 @@ The production design uses the existing Robinhood Chain mainnet token and Pons p
 - a live `$5` ETH entry quote, forwarded directly to the treasury;
 - a live `$10` GANGSTER wallet-hold access requirement;
 - USD-anchored GANGSTER rank and ATM values;
-- treasury-funded idle and bonus reward pools;
+- a daily base farm funded at a live `$5`–`$10` equivalent;
+- 25% of every GANGSTER gameplay payment redirected into the active farm period, with the remaining 75% sent to the treasury;
+- separate treasury-funded bonus reward pools;
 - power-share idle rewards where heat rises 1% per minute and reduces earnings 1% per 3 heat;
 - a lay-low mode that pauses earnings and cools heat 1% per minute;
 - one protected in-game claim per hour, with a fixed 10% burn;

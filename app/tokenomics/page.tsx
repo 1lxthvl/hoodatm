@@ -63,7 +63,7 @@ export default function GangstanomicsPage() {
       <section className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-8">
         <h2 className="text-2xl font-semibold text-white">Crew power & block earnings</h2>
         <p className="mt-4 text-slate-300">
-          Gangster cost is paid in $GANGSTER and power is the key farming metric. Idle rewards are distributed based on your power share relative to total network power. Earnings remain unclaimed—and exposed to robberies—until the player claims them.
+          Gangster cost is paid in $GANGSTER and power is the key farming metric. The daily base earning pool is set between $5 and $10, then 25% of every $GANGSTER gameplay payment is recycled into that day&apos;s farm pool. Idle rewards are distributed based on your power share relative to total network power. Earnings remain unclaimed—and exposed to robberies—until the player claims them.
         </p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {tiers.map((tier) => (
@@ -176,7 +176,7 @@ export default function GangstanomicsPage() {
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           {[
             "Idle farming is the main income stream.",
-            "The fixed $580/day launch farm is shared by effective network power and dilutes as the network grows.",
+            "The $5–$10 daily base farm plus 25% of all $GANGSTER gameplay spending is shared by effective network power and dilutes as the network grows.",
             "Heat rises 1% per minute and cuts earnings 1% per 3 heat; laying low cools 1% per minute.",
             "ATM hits are limited to once every 6 hours.",
             "Jackpot rewards are tiered and risk-weighted.",

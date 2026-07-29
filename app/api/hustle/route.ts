@@ -12,10 +12,10 @@ import {
   type TrackedPlayer,
 } from "../../lib/player-registry";
 import { CLAIM_COOLDOWN_MS, getClaimTerms } from "../../lib/claim-economy";
+import { getDailyBaseFarmPoolUsd } from "../../lib/daily-farm-economy";
 import { readXSession } from "../../lib/x-session";
 import { GET as getGangsterPrice } from "../gangster-price/route";
 
-const DAILY_FARM_POOL_USD = 580;
 const characterPower: Record<GangsterCharacter, number> = {
   Hoodlum: 5,
   Captain: 30,
@@ -62,7 +62,8 @@ async function zeroHeatRate(player: TrackedPlayer) {
   );
   const profile = farmingProfile(player);
   const share = totalWeight > 0 ? profile.weight / totalWeight : 1;
-  return (DAILY_FARM_POOL_USD / price.gangsterUsd / 24) * share * profile.earningRate;
+  const dailyBaseFarmPoolUsd = getDailyBaseFarmPoolUsd(Date.now());
+  return (dailyBaseFarmPoolUsd / price.gangsterUsd / 24) * share * profile.earningRate;
 }
 
 function hustleState(

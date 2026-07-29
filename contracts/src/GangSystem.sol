@@ -10,6 +10,7 @@ interface IATMGameGangHook {
     function hasActiveAccess(address account) external view returns (bool);
     function jailedUntil(address account) external view returns (uint256);
     function releaseFromJail(address inmate) external;
+    function recordGangsterSpend(address payer, uint256 amount, uint256 farmContribution) external;
     function players(address account)
         external
         view
@@ -42,6 +43,7 @@ contract GangSystem is ReentrancyGuard {
     IERC20 public constant GANGSTER = IERC20(0x6AE32f2620A4a2B55f4Fc4b9e3152c371Aa58EF0);
     address public constant TREASURY = 0x7657d90609046F47215Fc0Fb2BF012c88FF9f700;
     uint256 public constant BPS = 10_000;
+    uint256 public constant SPEND_TO_FARM_BPS = 2_500;
     uint256 public constant CREATION_USD_E18 = 10 ether;
     uint256 public constant JAILBREAK_USD_E18 = 2 ether;
     uint256 public constant JAILBREAK_CHANCE_BPS = 2_500;
@@ -143,7 +145,7 @@ contract GangSystem is ReentrancyGuard {
         if (directReferrals < 3) {
             cost = creationCost();
             if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
-            GANGSTER.safeTransferFrom(msg.sender, TREASURY, cost);
+            _collectGangsterSpend(msg.sender, cost);
         }
 
         gangId = ++gangCount;
@@ -196,7 +198,7 @@ contract GangSystem is ReentrancyGuard {
 
         uint256 cost = jailbreakCost();
         if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
-        GANGSTER.safeTransferFrom(msg.sender, TREASURY, cost);
+        _collectGangsterSpend(msg.sender, cost);
 
         uint64 nonce = ++jailbreakNonces[msg.sender];
         requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
@@ -262,5 +264,17 @@ contract GangSystem is ReentrancyGuard {
             ) return false;
         }
         return true;
+    }
+
+    function _collectGangsterSpend(address payer, uint256 amount) internal {
+        uint256 farmContribution = (amount * SPEND_TO_FARM_BPS) / BPS;
+        uint256 treasuryAmount = amount - farmContribution;
+        if (treasuryAmount != 0) {
+            GANGSTER.safeTransferFrom(payer, TREASURY, treasuryAmount);
+        }
+        if (farmContribution != 0) {
+            GANGSTER.safeTransferFrom(payer, address(game), farmContribution);
+            game.recordGangsterSpend(payer, amount, farmContribution);
+        }
     }
 }

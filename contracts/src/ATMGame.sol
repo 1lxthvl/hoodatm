@@ -42,7 +42,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
     uint256 public constant JOIN_USD_E18 = 5 ether;
     uint256 public constant ACCESS_HOLD_USD_E18 = 10 ether;
+    uint256 public constant DAILY_BASE_FARM_MIN_USD_E18 = 5 ether;
+    uint256 public constant DAILY_BASE_FARM_MAX_USD_E18 = 10 ether;
     uint256 public constant CLAIM_BURN_BPS = 1_000;
+    uint256 public constant SPEND_TO_FARM_BPS = 2_500;
     uint256 public constant MAX_CLAIM_FEE_BPS = 2_000;
     uint256 public constant MAX_CLAIM_BONUS_BPS = 2_000;
     uint256 public constant CLAIM_STEP_BPS = 200;
@@ -143,6 +146,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     uint256 public bonusPool;
     uint256 public reservedBonusPool;
     uint256 public totalAtmClaimPool;
+    uint256 public spendingFarmPoolContributed;
     uint256 public referralEntryPoolAllocatedEth;
 
     event PauseUpdated(bool paused);
@@ -155,6 +159,12 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     event TierUpgraded(address indexed player, uint8 indexed tier, uint32 power, uint256 gangsterPaid);
     event RewardsFunded(uint256 amount, uint256 duration, uint256 rewardRate);
     event BonusPoolFunded(uint256 amount);
+    event GangsterSpendRouted(
+        address indexed source,
+        address indexed payer,
+        uint256 amount,
+        uint256 farmContribution
+    );
     event Claimed(
         address indexed player,
         uint256 grossAmount,
@@ -406,7 +416,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint256 amount = quoteTierUpgrade(msg.sender, targetTier);
         if (amount > maxGangsterAmount) revert SlippageExceeded(amount, maxGangsterAmount);
 
-        GANGSTER.safeTransferFrom(msg.sender, TREASURY, amount);
+        _collectGangsterSpend(msg.sender, amount);
         totalPower = totalPower - player.power + tierPower(targetTier);
         player.tier = targetTier;
         player.power = tierPower(targetTier);
@@ -415,7 +425,11 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function fundRewards(uint256 amount, uint256 duration) external onlyOwner nonReentrant {
-        if (amount == 0 || duration < 1 days || duration > 365 days) revert InvalidDuration();
+        uint256 minimumAmount = oracle.quoteGangsterForUsd(DAILY_BASE_FARM_MIN_USD_E18);
+        uint256 maximumAmount = oracle.quoteGangsterForUsd(DAILY_BASE_FARM_MAX_USD_E18);
+        if (duration != 1 days || amount < minimumAmount || amount > maximumAmount) {
+            revert InvalidDuration();
+        }
         _updateGlobal();
         GANGSTER.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -435,6 +449,15 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         GANGSTER.safeTransferFrom(msg.sender, address(this), amount);
         bonusPool += amount;
         emit BonusPoolFunded(amount);
+    }
+
+    function recordGangsterSpend(address payer, uint256 amount, uint256 farmContribution) external {
+        if (
+            msg.sender != gangSystem || farmContribution == 0
+                || farmContribution != (amount * SPEND_TO_FARM_BPS) / BPS
+        ) revert AccessDenied();
+        _notifySpendingRewards(farmContribution);
+        emit GangsterSpendRouted(msg.sender, payer, amount, farmContribution);
     }
 
     function pendingRewards(address account) external view returns (uint256) {
@@ -652,7 +675,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
         uint256 cost = snitchCost();
         if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
-        GANGSTER.safeTransferFrom(msg.sender, TREASURY, cost);
+        _collectGangsterSpend(msg.sender, cost);
         delete snitchTarget[msg.sender];
         delete snitchAvailableUntil[msg.sender];
 
@@ -685,7 +708,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
         uint256 cost = jailItemCost(item);
         if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
-        GANGSTER.safeTransferFrom(msg.sender, TREASURY, cost);
+        _collectGangsterSpend(msg.sender, cost);
 
         uint64 nonce = ++actionNonces[msg.sender];
         requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
@@ -1002,6 +1025,35 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         atmClaimPools[3] += downtownVault;
         totalAtmClaimPool += amount;
         bonusPool += amount;
+    }
+
+    function _collectGangsterSpend(address payer, uint256 amount) internal {
+        uint256 farmContribution = (amount * SPEND_TO_FARM_BPS) / BPS;
+        uint256 treasuryAmount = amount - farmContribution;
+        if (treasuryAmount != 0) {
+            GANGSTER.safeTransferFrom(payer, TREASURY, treasuryAmount);
+        }
+        if (farmContribution != 0) {
+            GANGSTER.safeTransferFrom(payer, address(this), farmContribution);
+            _notifySpendingRewards(farmContribution);
+        }
+        emit GangsterSpendRouted(address(this), payer, amount, farmContribution);
+    }
+
+    function _notifySpendingRewards(uint256 amount) internal {
+        _updateGlobal();
+        uint256 duration;
+        uint256 remaining;
+        if (block.timestamp < rewardPeriodFinish) {
+            duration = rewardPeriodFinish - block.timestamp;
+            remaining = duration * rewardRate;
+        } else {
+            duration = 1 days;
+        }
+        rewardRate = (remaining + amount) / duration;
+        lastRewardTime = block.timestamp;
+        rewardPeriodFinish = block.timestamp + duration;
+        spendingFarmPoolContributed += amount;
     }
 
     function _reserveAtmReward(uint8 atmIndex, uint256 rewardAmount)

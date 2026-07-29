@@ -73,6 +73,13 @@ export const hoodAtmGameAbi = [
   },
   {
     type: "function",
+    name: "spendingFarmPoolContributed",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "atmWinChance",
     stateMutability: "view",
     inputs: [

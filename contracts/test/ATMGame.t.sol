@@ -169,7 +169,8 @@ contract ATMGameTest is Test {
         (, uint8 tier, uint32 power,,,,) = game.players(alice);
         assertEq(tier, 1);
         assertEq(power, 5);
-        assertEq(token.balanceOf(TREASURY) - treasuryBefore, quote);
+        assertEq(token.balanceOf(TREASURY) - treasuryBefore, (quote * 7_500) / 10_000);
+        assertEq(game.spendingFarmPoolContributed(), (quote * 2_500) / 10_000);
     }
 
     function testClaimAtTenHoursBurnsTenPercentWithNoFeeOrBonus() public {
@@ -177,7 +178,7 @@ contract ATMGameTest is Test {
         token.mint(TREASURY, 100_000 ether);
         vm.startPrank(TREASURY);
         token.approve(address(game), type(uint256).max);
-        game.fundRewards(100_000 ether, 1 days);
+        game.fundRewards(oracle.quoteGangsterForUsd(7.5 ether), 1 days);
         vm.stopPrank();
 
         vm.warp(block.timestamp + 10 hours);
@@ -195,7 +196,7 @@ contract ATMGameTest is Test {
         token.mint(TREASURY, 100_000 ether);
         vm.startPrank(TREASURY);
         token.approve(address(game), type(uint256).max);
-        game.fundRewards(100_000 ether, 1 days);
+        game.fundRewards(oracle.quoteGangsterForUsd(7.5 ether), 1 days);
         vm.stopPrank();
 
         vm.warp(block.timestamp + 1 hours);
@@ -223,7 +224,7 @@ contract ATMGameTest is Test {
         token.mint(TREASURY, 200_000 ether);
         vm.startPrank(TREASURY);
         token.approve(address(game), type(uint256).max);
-        game.fundRewards(100_000 ether, 1 days);
+        game.fundRewards(oracle.quoteGangsterForUsd(7.5 ether), 1 days);
         game.fundBonusPool(100_000 ether);
         vm.stopPrank();
 
@@ -243,7 +244,7 @@ contract ATMGameTest is Test {
         token.mint(TREASURY, 24_000_000 ether);
         vm.startPrank(TREASURY);
         token.approve(address(game), type(uint256).max);
-        game.fundRewards(24_000_000 ether, 1 days);
+        game.fundRewards(oracle.quoteGangsterForUsd(7.5 ether), 1 days);
         vm.stopPrank();
         vm.warp(block.timestamp + 1 hours);
         vm.prank(alice);
@@ -291,7 +292,8 @@ contract ATMGameTest is Test {
 
         assertEq(gangId, 1);
         assertEq(gangs.gangOf(alice), gangId);
-        assertEq(token.balanceOf(TREASURY) - treasuryBefore, quote);
+        assertEq(token.balanceOf(TREASURY) - treasuryBefore, (quote * 7_500) / 10_000);
+        assertEq(game.spendingFarmPoolContributed(), (quote * 2_500) / 10_000);
     }
 
     function testThreeDirectReferralsWaiveGangCreationPayment() public {
