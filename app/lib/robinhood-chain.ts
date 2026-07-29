@@ -40,6 +40,28 @@ export const hoodAtmGameAbi = [
   },
   {
     type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "claimQuote",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [
+      { name: "gross", type: "uint256" },
+      { name: "burned", type: "uint256" },
+      { name: "atmFee", type: "uint256" },
+      { name: "bonus", type: "uint256" },
+      { name: "feeBps", type: "uint16" },
+      { name: "bonusBps", type: "uint16" },
+      { name: "nextClaimAt", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
     name: "withdrawalQuote",
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],

@@ -2,6 +2,13 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import {
+  BPS,
+  CLAIM_BURN_BPS,
+  CLAIM_COOLDOWN_MS,
+  getClaimTerms,
+  splitAtmPoolFee,
+} from "./claim-economy";
 
 export const playerCategories = ["Connected", "Whitelisted", "Initiated", "Active", "Flagged"] as const;
 export type PlayerCategory = (typeof playerCategories)[number];
@@ -35,6 +42,9 @@ export type TrackedPlayer = {
   hustleUnclaimed: number;
   hustleClaimed: number;
   hustleHeat: number;
+  hustleUnclaimedSince: string | null;
+  hustleLastClaimAt: string | null;
+  hustleAtmPoolContributions: [number, number, number, number];
   category: PlayerCategory;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -94,6 +104,23 @@ async function readPlayersUnsafe(): Promise<TrackedPlayer[]> {
         hustleUnclaimed: Math.max(0, player.hustleUnclaimed ?? 0),
         hustleClaimed: Math.max(0, player.hustleClaimed ?? 0),
         hustleHeat: Math.min(100, Math.max(0, player.hustleHeat ?? 0)),
+        hustleUnclaimedSince: (player.hustleUnclaimed ?? 0) > 0
+          ? player.hustleUnclaimedSince
+            ?? player.hustleLastAccruedAt
+            ?? player.hustleStartedAt
+            ?? new Date().toISOString()
+          : null,
+        hustleLastClaimAt: player.hustleLastClaimAt ?? null,
+        hustleAtmPoolContributions:
+          Array.isArray(player.hustleAtmPoolContributions)
+          && player.hustleAtmPoolContributions.length === 4
+            ? player.hustleAtmPoolContributions.map((amount) => Math.max(0, amount)) as [
+                number,
+                number,
+                number,
+                number,
+              ]
+            : [0, 0, 0, 0],
         category: player.category ?? "Connected",
         firstSeenAt: player.firstSeenAt ?? new Date().toISOString(),
         lastSeenAt: player.lastSeenAt ?? new Date().toISOString(),
@@ -118,6 +145,19 @@ async function writePlayersUnsafe(players: TrackedPlayer[]) {
 export async function listTrackedPlayers() {
   await registryQueue;
   return readPlayersUnsafe();
+}
+
+export async function getHustleAtmPoolTotals() {
+  const players = await listTrackedPlayers();
+  return players.reduce<[number, number, number, number]>(
+    (totals, player) => {
+      player.hustleAtmPoolContributions.forEach((amount, index) => {
+        totals[index] += amount;
+      });
+      return totals;
+    },
+    [0, 0, 0, 0],
+  );
 }
 
 export function normalizeGangsterUsername(value: unknown) {
@@ -199,6 +239,15 @@ export async function trackPlayer(input: {
       existing.hustleUnclaimed = Math.max(0, existing.hustleUnclaimed ?? 0);
       existing.hustleClaimed = Math.max(0, existing.hustleClaimed ?? 0);
       existing.hustleHeat = Math.min(100, Math.max(0, existing.hustleHeat ?? 0));
+      existing.hustleUnclaimedSince = existing.hustleUnclaimed > 0
+        ? existing.hustleUnclaimedSince
+          ?? existing.hustleLastAccruedAt
+          ?? existing.hustleStartedAt
+          ?? now
+        : null;
+      existing.hustleLastClaimAt = existing.hustleLastClaimAt ?? null;
+      existing.hustleAtmPoolContributions =
+        existing.hustleAtmPoolContributions ?? [0, 0, 0, 0];
       existing.lastSeenAt = now;
       await writePlayersUnsafe(players);
       return existing;
@@ -240,6 +289,9 @@ export async function trackPlayer(input: {
       hustleUnclaimed: 0,
       hustleClaimed: 0,
       hustleHeat: 0,
+      hustleUnclaimedSince: null,
+      hustleLastClaimAt: null,
+      hustleAtmPoolContributions: [0, 0, 0, 0],
       category: "Connected",
       firstSeenAt: now,
       lastSeenAt: now,
@@ -293,6 +345,9 @@ export async function updatePlayerHustle(
         (heatMultiplier(startingHeat) + heatMultiplier(endingHeat)) / 2;
       const accrued =
         zeroHeatTokensPerHour * (elapsedSinceAccrual / 3_600_000) * averageHeatMultiplier;
+      if (player.hustleUnclaimed <= 0 && accrued > 0) {
+        player.hustleUnclaimedSince = new Date(lastAccruedAt).toISOString();
+      }
       player.hustleEarned += accrued;
       player.hustleUnclaimed += accrued;
     }
@@ -329,14 +384,53 @@ export async function claimPlayerHustleEarnings(wallet: string) {
       (candidate) => candidate.wallet.toLowerCase() === wallet.toLowerCase(),
     );
     if (!player) return null;
+    const now = Date.now();
+    const lastClaimAt = player.hustleLastClaimAt
+      ? new Date(player.hustleLastClaimAt).getTime()
+      : 0;
+    const nextClaimAt = lastClaimAt + CLAIM_COOLDOWN_MS;
+    if (lastClaimAt > 0 && nextClaimAt > now) {
+      throw new PlayerRegistryConflict(
+        `Claim available in ${Math.ceil((nextClaimAt - now) / 60_000)} minute(s).`,
+      );
+    }
     const gross = Math.max(0, player.hustleUnclaimed);
-    const burned = gross * 0.1;
-    const received = gross - burned;
+    if (gross <= 0) {
+      throw new PlayerRegistryConflict("Nothing to claim.");
+    }
+    const unclaimedSince = player.hustleUnclaimedSince
+      ? new Date(player.hustleUnclaimedSince).getTime()
+      : now;
+    const terms = getClaimTerms(unclaimedSince, now);
+    const burned = gross * CLAIM_BURN_BPS / BPS;
+    const fee = gross * terms.feeBps / BPS;
+    const bonus = gross * terms.bonusBps / BPS;
+    const received = gross - burned - fee + bonus;
+    const atmPoolAllocations = splitAtmPoolFee(fee);
     player.hustleUnclaimed = 0;
     player.hustleClaimed += received;
-    player.lastSeenAt = new Date().toISOString();
+    player.hustleUnclaimedSince = null;
+    player.hustleLastClaimAt = new Date(now).toISOString();
+    player.hustleAtmPoolContributions = player.hustleAtmPoolContributions.map(
+      (amount, index) => amount + atmPoolAllocations[index],
+    ) as [number, number, number, number];
+    player.lastSeenAt = new Date(now).toISOString();
     await writePlayersUnsafe(players);
-    return { player, claim: { gross, burned, received } };
+    return {
+      player,
+      claim: {
+        gross,
+        burned,
+        fee,
+        bonus,
+        received,
+        feeBps: terms.feeBps,
+        bonusBps: terms.bonusBps,
+        heldHours: terms.heldHours,
+        nextClaimAt: now + CLAIM_COOLDOWN_MS,
+        atmPoolAllocations,
+      },
+    };
   });
   registryQueue = operation.then(() => undefined, () => undefined);
   return operation;

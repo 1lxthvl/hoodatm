@@ -43,6 +43,12 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     uint256 public constant JOIN_USD_E18 = 5 ether;
     uint256 public constant ACCESS_HOLD_USD_E18 = 10 ether;
     uint256 public constant CLAIM_BURN_BPS = 1_000;
+    uint256 public constant MAX_CLAIM_FEE_BPS = 2_000;
+    uint256 public constant MAX_CLAIM_BONUS_BPS = 2_000;
+    uint256 public constant CLAIM_STEP_BPS = 200;
+    uint256 public constant CLAIM_COOLDOWN = 1 hours;
+    uint256 public constant CLAIM_FEE_END_HOUR = 10;
+    uint256 public constant CLAIM_BONUS_CAP_HOUR = 20;
     uint256 public constant BPS = 10_000;
     uint256 public constant ACC_REWARD_PRECISION = 1e24;
     uint256 public constant ACTION_COOLDOWN = 6 hours;
@@ -91,6 +97,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint8 atmIndex;
         uint256 forfeiture;
         uint256 reservedReward;
+        uint256 reservedAtmPool;
     }
 
     struct ATMConfig {
@@ -106,6 +113,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     mapping(address => mapping(address => uint256)) public playerAttackAvailableAt;
     mapping(address => mapping(uint8 => uint256)) public atmAvailableAt;
     mapping(address => uint256) public lastWithdrawalAt;
+    mapping(address => uint256) public claimedBalance;
+    mapping(address => uint256) public lastClaimAt;
+    mapping(address => uint256) public unclaimedSince;
+    mapping(address => uint256) public playerRewardUpdatedAt;
     mapping(address => uint256) public heatStartedAt;
     mapping(address => uint256) public layLowUntil;
     mapping(address => uint256) public jailedUntil;
@@ -121,6 +132,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     mapping(address => string) public usernames;
     mapping(bytes32 => address) public usernameOwner;
     ATMConfig[4] public atms;
+    uint256[4] public atmClaimPools;
+    uint256[4] public reservedAtmClaimPools;
 
     uint256 public totalPower;
     uint256 public accRewardPerPower;
@@ -129,6 +142,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     uint256 public rewardPeriodFinish;
     uint256 public bonusPool;
     uint256 public reservedBonusPool;
+    uint256 public totalAtmClaimPool;
     uint256 public referralEntryPoolAllocatedEth;
 
     event PauseUpdated(bool paused);
@@ -141,7 +155,17 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     event TierUpgraded(address indexed player, uint8 indexed tier, uint32 power, uint256 gangsterPaid);
     event RewardsFunded(uint256 amount, uint256 duration, uint256 rewardRate);
     event BonusPoolFunded(uint256 amount);
-    event Claimed(address indexed player, uint256 grossAmount, uint256 burnedAmount, uint256 receivedAmount);
+    event Claimed(
+        address indexed player,
+        uint256 grossAmount,
+        uint256 burnedAmount,
+        uint256 atmFeeAmount,
+        uint256 bonusAmount,
+        uint256 receivedAmount,
+        uint16 feeBps,
+        uint16 bonusBps
+    );
+    event Withdrawn(address indexed player, uint256 amount, uint256 nextWithdrawalAt);
     event UsernameSet(address indexed player, string username);
     event LaidLow(address indexed player, uint256 readyAt);
     event SnitchSettled(address indexed informant, address indexed target, bool jailed, uint256 cost);
@@ -255,6 +279,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         player.joined = true;
         player.power = 1;
         heatStartedAt[msg.sender] = block.timestamp;
+        playerRewardUpdatedAt[msg.sender] = block.timestamp;
         totalPower += 1;
         _syncRewardDebt(player);
 
@@ -439,33 +464,93 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
                 || block.timestamp - updatedAt > HOLDING_OBSERVATION_MAX_AGE
         ) return (0, averageHeld24h, nextWithdrawalAt);
 
-        uint256 unclaimedBalance = this.pendingRewards(account);
-        if (block.timestamp < robberyLootUnlockAt[account]) {
-            uint256 locked = lockedRobberyLoot[account];
-            unclaimedBalance = locked < unclaimedBalance ? unclaimedBalance - locked : 0;
-        }
-        uint256 balanceLimit = (unclaimedBalance * WITHDRAWAL_BPS) / BPS;
+        uint256 balanceLimit = (claimedBalance[account] * WITHDRAWAL_BPS) / BPS;
         uint256 holdingLimit = (averageHeld24h * WITHDRAWAL_BPS) / BPS;
         grossLimit = balanceLimit < holdingLimit ? balanceLimit : holdingLimit;
     }
 
+    function claimQuote(address account)
+        public
+        view
+        returns (
+            uint256 gross,
+            uint256 burned,
+            uint256 atmFee,
+            uint256 bonus,
+            uint16 feeBps,
+            uint16 bonusBps,
+            uint256 nextClaimAt
+        )
+    {
+        gross = this.pendingRewards(account);
+        if (block.timestamp < robberyLootUnlockAt[account]) {
+            uint256 locked = lockedRobberyLoot[account];
+            gross = locked < gross ? gross - locked : 0;
+        }
+        nextClaimAt = lastClaimAt[account] + CLAIM_COOLDOWN;
+        (feeBps, bonusBps) = claimRates(account);
+        burned = (gross * CLAIM_BURN_BPS) / BPS;
+        atmFee = (gross * feeBps) / BPS;
+        uint256 requestedBonus = (gross * bonusBps) / BPS;
+        uint256 reservedGeneral = reservedBonusPool - _reservedAtmPoolTotal();
+        uint256 committed = reservedGeneral + totalAtmClaimPool;
+        uint256 availableBonus = bonusPool > committed ? bonusPool - committed : 0;
+        bonus = requestedBonus < availableBonus ? requestedBonus : availableBonus;
+    }
+
+    function claimRates(address account) public view returns (uint16 feeBps, uint16 bonusBps) {
+        uint256 startedAt = unclaimedSince[account];
+        uint256 heldHours = startedAt == 0 || startedAt >= block.timestamp
+            ? 0
+            : (block.timestamp - startedAt) / 1 hours;
+        if (heldHours < CLAIM_FEE_END_HOUR) {
+            feeBps = uint16(MAX_CLAIM_FEE_BPS - heldHours * CLAIM_STEP_BPS);
+        }
+        if (heldHours > CLAIM_FEE_END_HOUR) {
+            uint256 bonusHours = heldHours - CLAIM_FEE_END_HOUR;
+            uint256 cappedHours = CLAIM_BONUS_CAP_HOUR - CLAIM_FEE_END_HOUR;
+            if (bonusHours > cappedHours) bonusHours = cappedHours;
+            bonusBps = uint16(bonusHours * CLAIM_STEP_BPS);
+        }
+    }
+
     function claim() external nonReentrant whenNotPaused onlyActiveMember {
         _updatePlayer(msg.sender);
-        Player storage player = players[msg.sender];
+        uint256 availableAt = lastClaimAt[msg.sender] + CLAIM_COOLDOWN;
+        if (lastClaimAt[msg.sender] != 0 && availableAt > block.timestamp) {
+            revert CooldownActive(availableAt);
+        }
+        (
+            uint256 gross,
+            uint256 burned,
+            uint256 atmFee,
+            uint256 bonus,
+            uint16 feeBps,
+            uint16 bonusBps,
+        ) = claimQuote(msg.sender);
+        if (gross == 0) revert InsufficientUnclaimed();
+
+        _subtractUnclaimed(msg.sender, gross);
+        lastClaimAt[msg.sender] = block.timestamp;
+        uint256 received = gross - burned - atmFee + bonus;
+        claimedBalance[msg.sender] += received;
+        if (bonus != 0) bonusPool -= bonus;
+        if (atmFee != 0) _allocateClaimFee(atmFee);
+        if (burned != 0) GANGSTER.safeTransfer(BURN_ADDRESS, burned);
+        emit Claimed(msg.sender, gross, burned, atmFee, bonus, received, feeBps, bonusBps);
+    }
+
+    function withdraw() external nonReentrant whenNotPaused onlyActiveMember {
         uint256 availableAt = lastWithdrawalAt[msg.sender] + WITHDRAWAL_COOLDOWN;
         if (lastWithdrawalAt[msg.sender] != 0 && availableAt > block.timestamp) {
             revert CooldownActive(availableAt);
         }
         (uint256 gross, uint256 averageHeld24h,) = withdrawalQuote(msg.sender);
         if (averageHeld24h == 0 || gross == 0) revert HoldingObservationUnavailable();
-        player.unclaimed -= gross;
+        claimedBalance[msg.sender] -= gross;
         lastWithdrawalAt[msg.sender] = block.timestamp;
-
-        uint256 burned = (gross * CLAIM_BURN_BPS) / BPS;
-        uint256 received = gross - burned;
-        if (burned != 0) GANGSTER.safeTransfer(BURN_ADDRESS, burned);
-        GANGSTER.safeTransfer(msg.sender, received);
-        emit Claimed(msg.sender, gross, burned, received);
+        GANGSTER.safeTransfer(msg.sender, gross);
+        emit Withdrawn(msg.sender, gross, block.timestamp + WITHDRAWAL_COOLDOWN);
     }
 
     function atmWinChance(address account, uint8 atmIndex) external view returns (uint32) {
@@ -510,7 +595,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             nonce: nonce,
             atmIndex: 0,
             forfeiture: (players[msg.sender].unclaimed * 2_500) / BPS,
-            reservedReward: 0
+            reservedReward: 0,
+            reservedAtmPool: 0
         });
         playerAttackAvailableAt[msg.sender][target] = block.timestamp + ACTION_COOLDOWN;
         emit ActionCommitted(requestId, msg.sender, ActionKind.PlayerRobbery, target, 0, nonce);
@@ -532,9 +618,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint256 lossAmount = oracle.quoteGangsterForUsd(config.lossUsdE18);
         uint256 rewardAmount = oracle.quoteGangsterForUsd(config.rewardUsdE18);
         if (players[msg.sender].unclaimed < lossAmount) revert InsufficientUnclaimed();
-        if (bonusPool - reservedBonusPool < rewardAmount) revert InsufficientBonusPool();
-
-        reservedBonusPool += rewardAmount;
+        uint256 reservedFromAtmPool = _reserveAtmReward(atmIndex, rewardAmount);
         uint64 nonce = ++actionNonces[msg.sender];
         requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
         pendingActions[msg.sender] = PendingAction({
@@ -545,7 +629,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             nonce: nonce,
             atmIndex: atmIndex,
             forfeiture: lossAmount,
-            reservedReward: rewardAmount
+            reservedReward: rewardAmount,
+            reservedAtmPool: reservedFromAtmPool
         });
         atmAvailableAt[msg.sender][atmIndex] = block.timestamp + ACTION_COOLDOWN;
         emit ActionCommitted(requestId, msg.sender, ActionKind.ATMHit, address(0), atmIndex, nonce);
@@ -581,7 +666,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             nonce: nonce,
             atmIndex: 0,
             forfeiture: cost,
-            reservedReward: 0
+            reservedReward: 0,
+            reservedAtmPool: 0
         });
         emit ActionCommitted(requestId, msg.sender, ActionKind.Snitch, target, 0, nonce);
     }
@@ -611,7 +697,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             nonce: nonce,
             atmIndex: item,
             forfeiture: cost,
-            reservedReward: 0
+            reservedReward: 0,
+            reservedAtmPool: 0
         });
         emit ActionCommitted(requestId, msg.sender, ActionKind.JailShop, address(0), item, nonce);
     }
@@ -640,7 +727,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             nonce: nonce,
             atmIndex: 0,
             forfeiture: jailLostLoot[msg.sender],
-            reservedReward: jailIncidentAt[msg.sender]
+            reservedReward: jailIncidentAt[msg.sender],
+            reservedAtmPool: 0
         });
         emit ActionCommitted(requestId, msg.sender, ActionKind.PhoneHit, target, 0, nonce);
     }
@@ -688,14 +776,15 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             : action.forfeiture < players[attacker].unclaimed
                 ? action.forfeiture
                 : players[attacker].unclaimed;
-        players[attacker].unclaimed -= penalty;
+        _subtractUnclaimed(attacker, penalty);
 
         if (action.kind == ActionKind.PlayerRobbery && action.target != address(0)) {
             _updatePlayer(action.target);
-            players[action.target].unclaimed += penalty;
+            _addUnclaimed(action.target, penalty);
             players[action.target].lifetimeEarned += penalty;
         } else if (action.kind == ActionKind.ATMHit) {
             reservedBonusPool -= action.reservedReward;
+            reservedAtmClaimPools[action.atmIndex] -= action.reservedAtmPool;
             if (penalty != 0) GANGSTER.safeTransfer(BURN_ADDRESS, penalty);
         }
 
@@ -717,17 +806,19 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
         if (won) {
             amount = (players[target].unclaimed * stealBps) / BPS;
-            players[target].unclaimed -= amount;
-            players[attacker].unclaimed += amount;
+            _subtractUnclaimed(target, amount);
+            _addUnclaimed(attacker, amount);
 
             uint256 bonusRate = players[attacker].directReferrals * 250;
             if (bonusRate > 2_500) bonusRate = 2_500;
             uint256 requestedBonus = (amount * bonusRate) / BPS;
-            uint256 availableBonus = bonusPool - reservedBonusPool;
+            uint256 committed =
+                totalAtmClaimPool + reservedBonusPool - _reservedAtmPoolTotal();
+            uint256 availableBonus = bonusPool > committed ? bonusPool - committed : 0;
             referralBonus = requestedBonus < availableBonus ? requestedBonus : availableBonus;
             if (referralBonus != 0) {
                 bonusPool -= referralBonus;
-                players[attacker].unclaimed += referralBonus;
+                _addUnclaimed(attacker, referralBonus);
             }
             players[attacker].lifetimeEarned += amount + referralBonus;
             if (players[attacker].power > players[target].power) {
@@ -737,8 +828,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             }
         } else {
             amount = (players[attacker].unclaimed * lossBps) / BPS;
-            players[attacker].unclaimed -= amount;
-            players[target].unclaimed += amount;
+            _subtractUnclaimed(attacker, amount);
+            _addUnclaimed(target, amount);
             players[target].lifetimeEarned += amount;
             if (block.timestamp >= robberyLootUnlockAt[target]) lockedRobberyLoot[target] = 0;
             lockedRobberyLoot[target] += amount;
@@ -757,18 +848,23 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint32 chanceE8 = atmWinChanceForPower(players[attacker].power, action.atmIndex);
         bool won = entropy % CHANCE_PRECISION < chanceE8;
         reservedBonusPool -= action.reservedReward;
+        reservedAtmClaimPools[action.atmIndex] -= action.reservedAtmPool;
 
         uint256 amount;
         if (won) {
             amount = action.reservedReward;
             bonusPool -= amount;
-            players[attacker].unclaimed += amount;
+            if (action.reservedAtmPool != 0) {
+                atmClaimPools[action.atmIndex] -= action.reservedAtmPool;
+                totalAtmClaimPool -= action.reservedAtmPool;
+            }
+            _addUnclaimed(attacker, amount);
             players[attacker].lifetimeEarned += amount;
         } else {
             amount = action.forfeiture < players[attacker].unclaimed
                 ? action.forfeiture
                 : players[attacker].unclaimed;
-            players[attacker].unclaimed -= amount;
+            _subtractUnclaimed(attacker, amount);
             if (amount != 0) GANGSTER.safeTransfer(BURN_ADDRESS, amount);
         }
         emit ATMHitSettled(requestId, attacker, action.atmIndex, won, amount, chanceE8);
@@ -819,8 +915,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             if (recovered > players[action.target].unclaimed) {
                 recovered = players[action.target].unclaimed;
             }
-            players[action.target].unclaimed -= recovered;
-            players[inmate].unclaimed += recovered;
+            _subtractUnclaimed(action.target, recovered);
+            _addUnclaimed(inmate, recovered);
             players[inmate].lifetimeEarned += recovered;
         }
         delete jailHitTarget[inmate];
@@ -857,19 +953,80 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function _updatePlayer(address account) internal {
+        uint256 accrualStartedAt = playerRewardUpdatedAt[account];
         _updateGlobal();
         Player storage player = players[account];
         if (player.power != 0) {
             uint256 accumulated = (uint256(player.power) * accRewardPerPower) / ACC_REWARD_PRECISION;
             uint256 newlyEarned =
                 ((accumulated - player.rewardDebt) * earningMultiplierBps(account)) / BPS;
-            player.unclaimed += newlyEarned;
+            if (newlyEarned != 0) {
+                if (player.unclaimed == 0) {
+                    unclaimedSince[account] =
+                        accrualStartedAt == 0 ? block.timestamp : accrualStartedAt;
+                }
+                player.unclaimed += newlyEarned;
+            }
             player.lifetimeEarned += newlyEarned;
             player.rewardDebt = accumulated;
         }
+        playerRewardUpdatedAt[account] = block.timestamp;
     }
 
     function _syncRewardDebt(Player storage player) internal {
         player.rewardDebt = (uint256(player.power) * accRewardPerPower) / ACC_REWARD_PRECISION;
+    }
+
+    function _addUnclaimed(address account, uint256 amount) internal {
+        if (amount == 0) return;
+        Player storage player = players[account];
+        if (player.unclaimed == 0) unclaimedSince[account] = block.timestamp;
+        player.unclaimed += amount;
+    }
+
+    function _subtractUnclaimed(address account, uint256 amount) internal {
+        if (amount == 0) return;
+        Player storage player = players[account];
+        player.unclaimed -= amount;
+        if (player.unclaimed == 0) unclaimedSince[account] = 0;
+    }
+
+    function _allocateClaimFee(uint256 amount) internal {
+        uint256 cornerStore = amount / 25;
+        uint256 nightclub = (amount * 2) / 25;
+        uint256 casinoFloor = (amount * 4) / 25;
+        uint256 downtownVault = amount - cornerStore - nightclub - casinoFloor;
+        atmClaimPools[0] += cornerStore;
+        atmClaimPools[1] += nightclub;
+        atmClaimPools[2] += casinoFloor;
+        atmClaimPools[3] += downtownVault;
+        totalAtmClaimPool += amount;
+        bonusPool += amount;
+    }
+
+    function _reserveAtmReward(uint8 atmIndex, uint256 rewardAmount)
+        internal
+        returns (uint256 reservedFromAtmPool)
+    {
+        uint256 committedGeneral =
+            reservedBonusPool - _reservedAtmPoolTotal() + totalAtmClaimPool;
+        uint256 availableGeneral = bonusPool > committedGeneral
+            ? bonusPool - committedGeneral
+            : 0;
+        uint256 availableTierPool =
+            atmClaimPools[atmIndex] - reservedAtmClaimPools[atmIndex];
+        if (availableGeneral + availableTierPool < rewardAmount) {
+            revert InsufficientBonusPool();
+        }
+        reservedFromAtmPool = rewardAmount < availableTierPool
+            ? rewardAmount
+            : availableTierPool;
+        reservedBonusPool += rewardAmount;
+        reservedAtmClaimPools[atmIndex] += reservedFromAtmPool;
+    }
+
+    function _reservedAtmPoolTotal() internal view returns (uint256) {
+        return reservedAtmClaimPools[0] + reservedAtmClaimPools[1]
+            + reservedAtmClaimPools[2] + reservedAtmClaimPools[3];
     }
 }

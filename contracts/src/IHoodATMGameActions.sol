@@ -10,10 +10,16 @@ interface IHoodATMGameActions {
         address indexed player,
         uint256 grossAmount,
         uint256 burnedAmount,
-        uint256 receivedAmount
+        uint256 atmFeeAmount,
+        uint256 bonusAmount,
+        uint256 receivedAmount,
+        uint16 feeBps,
+        uint16 bonusBps
     );
+    event Withdrawn(address indexed player, uint256 amount, uint256 nextWithdrawalAt);
 
     function claim() external;
+    function withdraw() external;
     function join(address referrer) external payable;
     function upgradeTier(uint8 targetTier, uint256 maxGangsterAmount) external;
     function commitPlayerRobbery(address target, bytes32 commitment) external returns (bytes32);

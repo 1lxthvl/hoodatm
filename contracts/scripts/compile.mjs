@@ -40,7 +40,8 @@ const output = JSON.parse(solc.compile(JSON.stringify({
   language: "Solidity",
   sources,
   settings: {
-    optimizer: { enabled: true, runs: 500 },
+    optimizer: { enabled: true, runs: 1 },
+    viaIR: true,
     outputSelection: { "*": { "*": ["abi", "evm.bytecode.object", "evm.deployedBytecode.object"] } },
   },
 }), { import: findImports }));

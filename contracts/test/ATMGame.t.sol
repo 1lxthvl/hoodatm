@@ -172,7 +172,25 @@ contract ATMGameTest is Test {
         assertEq(token.balanceOf(TREASURY) - treasuryBefore, quote);
     }
 
-    function testClaimBurnsTenPercentAndPaysNinetyPercent() public {
+    function testClaimAtTenHoursBurnsTenPercentWithNoFeeOrBonus() public {
+        _join(alice);
+        token.mint(TREASURY, 100_000 ether);
+        vm.startPrank(TREASURY);
+        token.approve(address(game), type(uint256).max);
+        game.fundRewards(100_000 ether, 1 days);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 10 hours);
+        uint256 gross = game.pendingRewards(alice);
+        vm.prank(alice);
+        game.claim();
+
+        assertEq(token.balanceOf(DEAD), (gross * 1_000) / 10_000);
+        assertEq(game.claimedBalance(alice), gross - ((gross * 1_000) / 10_000));
+        assertEq(game.totalAtmClaimPool(), 0);
+    }
+
+    function testEarlyClaimFeeFundsAtmPoolsUsingOneTwoFourEighteenWeights() public {
         _join(alice);
         token.mint(TREASURY, 100_000 ether);
         vm.startPrank(TREASURY);
@@ -181,20 +199,43 @@ contract ATMGameTest is Test {
         vm.stopPrank();
 
         vm.warp(block.timestamp + 1 hours);
-        address[] memory accounts = new address[](1);
-        accounts[0] = alice;
-        uint256[] memory averages = new uint256[](1);
-        averages[0] = 1_000_000 ether;
-        holdingOracle.submitAverageBalances(
-            accounts, averages, uint64(block.timestamp - 24 hours), uint64(block.timestamp)
-        );
-        uint256 gross = game.pendingRewards(alice) / 2;
-        uint256 walletBefore = token.balanceOf(alice);
+        uint256 gross = game.pendingRewards(alice);
+        uint256 expectedFee = (gross * 1_800) / 10_000;
         vm.prank(alice);
         game.claim();
 
-        assertEq(token.balanceOf(DEAD), (gross * 1_000) / 10_000);
-        assertEq(token.balanceOf(alice) - walletBefore, gross - ((gross * 1_000) / 10_000));
+        assertEq(game.totalAtmClaimPool(), expectedFee);
+        assertEq(game.atmClaimPools(0), expectedFee / 25);
+        assertEq(game.atmClaimPools(1), (expectedFee * 2) / 25);
+        assertEq(game.atmClaimPools(2), (expectedFee * 4) / 25);
+        assertEq(
+            game.atmClaimPools(3),
+            expectedFee - expectedFee / 25 - (expectedFee * 2) / 25 - (expectedFee * 4) / 25
+        );
+
+        vm.expectRevert(ATMGame.CooldownActive.selector);
+        vm.prank(alice);
+        game.claim();
+    }
+
+    function testTwentyHourClaimAddsCappedTwentyPercentBonus() public {
+        _join(alice);
+        token.mint(TREASURY, 200_000 ether);
+        vm.startPrank(TREASURY);
+        token.approve(address(game), type(uint256).max);
+        game.fundRewards(100_000 ether, 1 days);
+        game.fundBonusPool(100_000 ether);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 20 hours);
+        uint256 gross = game.pendingRewards(alice);
+        vm.prank(alice);
+        game.claim();
+
+        assertEq(
+            game.claimedBalance(alice),
+            gross - ((gross * 1_000) / 10_000) + ((gross * 2_000) / 10_000)
+        );
     }
 
     function testWithdrawalIsCappedByHalfAverageHolding() public {
@@ -205,6 +246,8 @@ contract ATMGameTest is Test {
         game.fundRewards(24_000_000 ether, 1 days);
         vm.stopPrank();
         vm.warp(block.timestamp + 1 hours);
+        vm.prank(alice);
+        game.claim();
 
         address[] memory accounts = new address[](1);
         accounts[0] = alice;
@@ -214,7 +257,12 @@ contract ATMGameTest is Test {
             accounts, averages, uint64(block.timestamp - 24 hours), uint64(block.timestamp)
         );
         (uint256 gross,,) = game.withdrawalQuote(alice);
-        assertEq(gross, 500_000 ether);
+        assertEq(gross, game.claimedBalance(alice) / 2);
+
+        uint256 walletBefore = token.balanceOf(alice);
+        vm.prank(alice);
+        game.withdraw();
+        assertEq(token.balanceOf(alice) - walletBefore, gross);
     }
 
     function testAtmChancesScaleWithPowerAndRespectBaseCaps() public view {

@@ -19,8 +19,11 @@ The production design uses the existing Robinhood Chain mainnet token and Pons p
 - treasury-funded idle and bonus reward pools;
 - power-share idle rewards where heat rises 1% per minute and reduces earnings 1% per 3 heat;
 - a lay-low mode that pauses earnings and cools heat 1% per minute;
-- one withdrawal per 12 hours, capped at 50% of unclaimed earnings and 50% of the verified 24-hour average wallet holding;
-- a 10% withdrawal burn;
+- one protected in-game claim per hour, with a fixed 10% burn;
+- a claim fee that starts at 20%, drops 2% per completed unclaimed hour, and reaches 0% at 10 hours;
+- a post-10-hour claim bonus that rises 2% per hour and caps at 20% after 20 hours;
+- claim fees routed to the four ATM pools using their normalized 1:2:4:18 allocation;
+- one withdrawal per 12 hours, capped at 50% of the protected in-game balance and 50% of the verified 24-hour average wallet holding;
 - per-target and per-ATM six-hour cooldowns;
 - power-scaled ATM chances represented at 1-in-100-million precision and capped at the original base odds;
 - future-block commit/reveal settlement for robbery and ATM actions;

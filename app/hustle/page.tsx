@@ -55,6 +55,9 @@ export default function HustlePage() {
     hustleStartedAt,
     hustleAccumulatedMs,
     hustleStatePending,
+    claimAvailableAt,
+    claimTerms,
+    atmPoolContributions,
     startHustling,
     layLow,
     transactionError,
@@ -66,6 +69,8 @@ export default function HustlePage() {
   const sessionEarned = Math.max(0, currentPlayer.earned - startingEarned);
   const withdrawalCooldown = withdrawalAvailableAt - currentTime;
   const withdrawalLocked = withdrawalAvailableAt > 0 && (currentTime === 0 || withdrawalCooldown > 0);
+  const claimCooldown = claimAvailableAt - currentTime;
+  const claimLocked = claimAvailableAt > 0 && (currentTime === 0 || claimCooldown > 0);
   const activeHustleMs = isHustling && hustleStartedAt > 0 && currentTime > 0
     ? Math.max(0, currentTime - hustleStartedAt)
     : 0;
@@ -110,11 +115,13 @@ export default function HustlePage() {
               <button
                 type="button"
                 onClick={() => void claimEarnings()}
-                disabled={currentPlayer.unclaimed <= 0 || pendingAction !== null}
+                disabled={currentPlayer.unclaimed <= 0 || claimLocked || pendingAction !== null}
                 className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-6 py-3 font-bold text-[#10130c] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Coins className="h-4 w-4" /> {pendingAction === "Claim"
                   ? "Claimingâ€¦"
+                  : claimLocked
+                    ? `Claim in ${cooldownLabel(claimCooldown)}`
                   : currentPlayer.unclaimed <= 0
                     ? "Nothing to claim"
                     : `Claim ${formatGangster(currentPlayer.unclaimed)}`}
@@ -146,7 +153,25 @@ export default function HustlePage() {
               </button>
             </div>
             <div className="mt-4 max-w-2xl rounded-2xl border border-white/10 bg-black/30 p-4 text-sm leading-6 text-slate-300">
-              Claiming moves exposed earnings into your protected in-game wallet and burns 10%. Withdrawals open every 12 hours and move the smaller of 50% of your claimed in-game balance or 50% of your verified 24-hour average connected-wallet holding ({formatGangster(averageHeld24h)} $GANGSTER).
+              Claims are limited to once per hour and always burn 10%. The ATM-pool fee starts at 20%, falls by 2% per completed unclaimed hour, and reaches 0% at 10 hours. After 10 hours, the wait bonus rises by 2% per hour to a 20% cap at 20 hours. Withdrawals remain available every 12 hours and move the smaller of 50% of your claimed balance or 50% of your verified 24-hour average connected-wallet holding ({formatGangster(averageHeld24h)} $GANGSTER).
+            </div>
+            <div className="mt-3 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-red-300/20 bg-red-400/[0.07] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Claim fee now</p>
+                <p className="mt-1 text-xl font-black text-red-200">{claimTerms.feeBps / 100}%</p>
+              </div>
+              <div className="rounded-xl border border-lime-300/20 bg-lime-300/[0.07] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Wait bonus now</p>
+                <p className="mt-1 text-xl font-black text-lime-200">+{claimTerms.bonusBps / 100}%</p>
+              </div>
+              <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.07] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Held unclaimed</p>
+                <p className="mt-1 text-xl font-black text-amber-200">{claimTerms.heldHours}h</p>
+              </div>
+              <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/[0.07] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Next claim</p>
+                <p className="mt-1 text-xl font-black text-cyan-200">{claimLocked ? cooldownLabel(claimCooldown) : "Ready"}</p>
+              </div>
             </div>
             {transactionError ? (
               <p className="mt-3 max-w-2xl rounded-xl border border-red-300/25 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-200">{transactionError}</p>
@@ -175,12 +200,29 @@ export default function HustlePage() {
       </section>
 
       {lastClaim && (
-        <section className="grid gap-3 rounded-2xl border border-lime-300/20 bg-lime-300/[0.06] p-4 sm:grid-cols-3">
+        <section className="grid gap-3 rounded-2xl border border-lime-300/20 bg-lime-300/[0.06] p-4 sm:grid-cols-2 xl:grid-cols-5">
           <p className="text-sm text-slate-400">Claimed <span className="ml-2 font-bold text-white">{formatGangster(lastClaim.gross)}</span></p>
           <p className="text-sm text-slate-400">Burned 10% <span className="ml-2 font-bold text-red-300">{formatGangster(lastClaim.burned)}</span></p>
+          <p className="text-sm text-slate-400">ATM fee {lastClaim.feeBps / 100}% <span className="ml-2 font-bold text-amber-200">{formatGangster(lastClaim.fee)}</span></p>
+          <p className="text-sm text-slate-400">Wait bonus {lastClaim.bonusBps / 100}% <span className="ml-2 font-bold text-cyan-200">+{formatGangster(lastClaim.bonus)}</span></p>
           <p className="text-sm text-slate-400">Added to game wallet <span className="ml-2 font-bold text-lime-300">{formatGangster(lastClaim.received)}</span></p>
         </section>
       )}
+
+      <section className="rounded-[2rem] border border-amber-300/20 bg-amber-300/[0.05] p-6">
+        <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-200">Claim-funded ATM pools</p>
+        <p className="mt-3 max-w-4xl leading-7 text-slate-300">
+          Every dynamic claim fee is routed to the four ATM pools using the 1:2:4:18 distribution.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {["Corner Store ATM", "Nightclub ATM", "Casino Floor ATM", "Downtown Vault ATM"].map((name, index) => (
+            <div key={name} className="rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{name}</p>
+              <p className="mt-2 text-lg font-black text-amber-100">{formatGangster(atmPoolContributions[index])}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
@@ -210,7 +252,7 @@ export default function HustlePage() {
         {[
           { step: "01", title: "Start hustling", text: "Put your current crew power to work and begin the persistent hustle clock." },
           { step: "02", title: "Build exposure", text: "Idle rewards land in your unclaimed balance and remain visible to robbers." },
-          { step: "03", title: "Claim or risk it", text: "Claim with the 10% burn, or keep stacking for a larger—but exposed—balance." },
+          { step: "03", title: "Claim or risk it", text: "Claim hourly with the 10% burn and current fee, or keep exposed earnings unclaimed long enough to eliminate the fee and build up to a 20% wait bonus." },
         ].map((item) => (
           <article key={item.step} className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6">
             <p className="text-sm font-black text-amber-200">{item.step}</p>

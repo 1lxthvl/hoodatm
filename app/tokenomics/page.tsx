@@ -102,14 +102,14 @@ export default function GangstanomicsPage() {
         <p className="text-sm font-bold uppercase tracking-[0.24em] text-red-200">Claim burn & robbery economy</p>
         <h2 className="mt-3 text-3xl font-semibold text-white">Secure the bag or leave it on the block.</h2>
         <p className="mt-4 max-w-4xl leading-7 text-slate-300">
-          Farming and robbery rewards accumulate as an exposed, unclaimed balance. Claiming burns 10% and moves the remaining 90% into the protected in-game wallet. A withdrawal is available every 12 hours and is limited to the smaller of 50% of that claimed in-game balance or 50% of the player&apos;s verified average $GANGSTER holding in the connected wallet over the previous 24 hours. Every rival can only be attacked once per six-hour window.
+          Farming and robbery rewards accumulate as an exposed, unclaimed balance. Claims are limited to once per hour and always burn 10%. An additional ATM-pool fee starts at 20% and falls by 2% for every completed hour the balance stays unclaimed, reaching 0% at 10 hours. From hour 11 through hour 20, the claim instead earns 2% extra per hour up to a 20% bonus. Claim fees are split across the Corner Store, Nightclub, Casino Floor, and Downtown Vault pools using their 1:2:4:18 allocation. A withdrawal remains available every 12 hours and is limited to the smaller of 50% of the protected in-game balance or 50% of the player&apos;s verified average $GANGSTER holding over the previous 24 hours.
         </p>
         <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Withdrawal window", value: "12h", text: "One withdrawal per rolling twelve-hour window." },
-            { label: "Gross limit", value: "50%", text: "Capped by both unclaimed balance and verified 24h average holdings." },
-            { label: "Claim burn", value: "10%", text: "Removed from supply from every permitted withdrawal." },
-            { label: "Player receives", value: "90%", text: "The net balance delivered after the claim burn." },
+            { label: "Claim window", value: "1h", text: "One protected in-game-wallet claim per rolling hour." },
+            { label: "ATM fee", value: "20% → 0%", text: "Drops by 2% per completed unclaimed hour through hour 10." },
+            { label: "Wait bonus", value: "0% → 20%", text: "Rises by 2% per hour after hour 10 and caps at hour 20." },
+            { label: "Claim burn", value: "10%", text: "Permanently removed from supply on every claim." },
           ].map((item) => (
             <div key={item.label} className="rounded-3xl border border-white/10 bg-slate-900/60 p-5">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{item.label}</p>

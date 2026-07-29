@@ -6,6 +6,7 @@ import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
 import { Address, isAddress } from "viem";
 import { wagmiConfig } from "../lib/wagmi-config";
 import { hoodAtmChain, hoodAtmGameAbi } from "../lib/robinhood-chain";
+import { getClaimTerms, type ClaimTerms } from "../lib/claim-economy";
 import { useGangsterPrice } from "./gangster-price-provider";
 
 export type GangMember = {
@@ -53,6 +54,19 @@ type RobResult = {
 type ClaimResult = {
   gross: number;
   burned: number;
+  fee: number;
+  bonus: number;
+  received: number;
+  feeBps: number;
+  bonusBps: number;
+  heldHours: number;
+  nextClaimAt: number;
+  atmPoolAllocations: [number, number, number, number];
+};
+
+type BalanceTransferResult = {
+  gross: number;
+  burned: number;
   received: number;
 };
 
@@ -91,7 +105,7 @@ type MockGangContextValue = {
   activities: GangActivity[];
   lastRob: RobResult | null;
   lastClaim: ClaimResult | null;
-  lastWithdrawal: ClaimResult | null;
+  lastWithdrawal: BalanceTransferResult | null;
   contractConfigured: boolean;
   pendingAction: string | null;
   transactionHash: `0x${string}` | null;
@@ -108,6 +122,9 @@ type MockGangContextValue = {
   hustleStartedAt: number;
   hustleAccumulatedMs: number;
   hustleStatePending: boolean;
+  claimAvailableAt: number;
+  claimTerms: ClaimTerms;
+  atmPoolContributions: [number, number, number, number];
   layingLowUntil: number;
   jailedUntil: Record<string, number>;
   claimLockedUntil: Record<string, number>;
@@ -228,7 +245,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<GangActivity[]>(initialActivities);
   const [lastRob, setLastRob] = useState<RobResult | null>(null);
   const [lastClaim, setLastClaim] = useState<ClaimResult | null>(null);
-  const [lastWithdrawal, setLastWithdrawal] = useState<ClaimResult | null>(null);
+  const [lastWithdrawal, setLastWithdrawal] = useState<BalanceTransferResult | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [transactionHash, setTransactionHash] = useState<`0x${string}` | null>(null);
   const [transactionError, setTransactionError] = useState<string | null>(null);
@@ -238,6 +255,11 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const [hustleStartedAt, setHustleStartedAt] = useState(0);
   const [hustleAccumulatedMs, setHustleAccumulatedMs] = useState(0);
   const [hustleStatePending, setHustleStatePending] = useState(false);
+  const [claimAvailableAt, setClaimAvailableAt] = useState(0);
+  const [unclaimedSince, setUnclaimedSince] = useState(0);
+  const [atmPoolContributions, setAtmPoolContributions] = useState<
+    [number, number, number, number]
+  >([0, 0, 0, 0]);
   const [jailedUntil, setJailedUntil] = useState<Record<string, number>>({});
   const [claimLockedUntil, setClaimLockedUntil] = useState<Record<string, number>>({});
   const [snitchOpportunity, setSnitchOpportunity] = useState<MockGangContextValue["snitchOpportunity"]>(null);
@@ -288,6 +310,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     ? nextGangsterSlotCostUsd / price.gangsterUsd
     : 0;
   const crewActive = gangsterSlots >= 3;
+  const claimTerms = getClaimTerms(
+    unclaimedSince > 0 ? unclaimedSince : null,
+    currentTime,
+  );
 
   useEffect(() => {
     let lastAccruedAt = Date.now();
@@ -300,6 +326,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       const accrued = idleRewardPerHour * (elapsed / ONE_HOUR);
 
       if (accrued <= 0) return;
+      setUnclaimedSince((current) => current || Math.max(0, now - elapsed));
       setPlayers((current) => current.map((player) => (
         player.id === CURRENT_PLAYER_ID
           ? {
@@ -332,6 +359,9 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         setIsHustling(false);
         setHustleStartedAt(0);
         setHustleAccumulatedMs(0);
+        setClaimAvailableAt(0);
+        setUnclaimedSince(0);
+        setAtmPoolContributions([0, 0, 0, 0]);
         return;
       }
       try {
@@ -347,12 +377,18 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           unclaimed: number;
           claimed: number;
           heat: number;
+          unclaimedSince: number | null;
+          nextClaimAt: number;
+          atmPoolContributions: [number, number, number, number];
         };
         if (!active) return;
         setIsHustling(result.hustling);
         setHustleStartedAt(result.startedAt ? new Date(result.startedAt).getTime() : 0);
         setHustleAccumulatedMs(Math.max(0, result.accumulatedMs));
         setHeatLevel(Math.min(100, Math.max(0, result.heat)));
+        setClaimAvailableAt(Math.max(0, result.nextClaimAt));
+        setUnclaimedSince(Math.max(0, result.unclaimedSince ?? 0));
+        setAtmPoolContributions(result.atmPoolContributions ?? [0, 0, 0, 0]);
         setPlayers((current) => current.map((player) => (
           player.id === CURRENT_PLAYER_ID
             ? {
@@ -536,7 +572,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function submitOnchainClaim() {
+  async function submitOnchainBalanceAction(action: "Claim" | "Withdraw") {
     setTransactionError(null);
     setTransactionHash(null);
 
@@ -550,7 +586,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      setPendingAction("Withdraw");
+      setPendingAction(action);
       if (chainId !== hoodAtmChain.id) {
         await switchChainAsync({ chainId: hoodAtmChain.id });
       }
@@ -558,7 +594,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       const hash = await writeContractAsync({
         address: gameAddress,
         abi: hoodAtmGameAbi,
-        functionName: "claim",
+        functionName: action === "Claim" ? "claim" : "withdraw",
         args: [],
         chainId: hoodAtmChain.id,
       });
@@ -584,7 +620,13 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       !address
       || currentPlayer.unclaimed <= 0
       || (claimLockedUntil[CURRENT_PLAYER_ID] ?? 0) > Date.now()
+      || claimAvailableAt > Date.now()
       || pendingAction !== null
+    ) return;
+    if (
+      gameLive
+      && contractConfigured
+      && !(await submitOnchainBalanceAction("Claim"))
     ) return;
     setPendingAction("Claim");
     setTransactionError(null);
@@ -599,6 +641,9 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         unclaimed?: number;
         claimed?: number;
         heat?: number;
+        unclaimedSince?: number | null;
+        nextClaimAt?: number;
+        atmPoolContributions?: [number, number, number, number];
         claim?: ClaimResult;
         error?: string;
       };
@@ -616,13 +661,21 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           : player
       )));
       setHeatLevel(Math.min(100, Math.max(0, result.heat ?? heatLevel)));
+      setClaimAvailableAt(Math.max(0, result.nextClaimAt ?? result.claim.nextClaimAt));
+      setUnclaimedSince(Math.max(0, result.unclaimedSince ?? 0));
+      setAtmPoolContributions(
+        result.atmPoolContributions
+        ?? atmPoolContributions.map(
+          (amount, index) => amount + result.claim!.atmPoolAllocations[index],
+        ) as [number, number, number, number],
+      );
       setBurnedTotal((total) => total + result.claim!.burned);
       setLastClaim(result.claim);
       setActivities((current) => [{
         id: `claim-${Date.now()}`,
         type: "claim",
         title: "You secured your earnings",
-        detail: `Claimed ${formatGangster(result.claim!.gross)}; ${formatGangster(result.claim!.burned)} burned and ${formatGangster(result.claim!.received)} moved to your in-game wallet.`,
+        detail: `Claimed ${formatGangster(result.claim!.gross)}; ${formatGangster(result.claim!.burned)} burned, ${formatGangster(result.claim!.fee)} funded ATM pools, ${formatGangster(result.claim!.bonus)} was added as a wait bonus, and ${formatGangster(result.claim!.received)} moved to your in-game wallet.`,
         amount: result.claim!.received,
         burned: result.claim!.burned,
         time: "Just now",
@@ -638,7 +691,11 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     if (
       currentPlayer.claimed <= 0 || withdrawalAvailableAt > Date.now()
     ) return;
-    if (gameLive && contractConfigured && !(await submitOnchainClaim())) return;
+    if (
+      gameLive
+      && contractConfigured
+      && !(await submitOnchainBalanceAction("Withdraw"))
+    ) return;
 
     setPlayers((current) => current.map((player) => {
       if (player.id !== CURRENT_PLAYER_ID || player.claimed <= 0) return player;
@@ -1022,6 +1079,9 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     hustleStartedAt,
     hustleAccumulatedMs,
     hustleStatePending,
+    claimAvailableAt,
+    claimTerms,
+    atmPoolContributions,
     layingLowUntil,
     jailedUntil,
     claimLockedUntil,

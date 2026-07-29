@@ -3,12 +3,15 @@ import { isAddress } from "viem";
 import {
   claimPlayerHustleEarnings,
   findPlayerByWallet,
+  getHustleAtmPoolTotals,
   listTrackedPlayers,
+  PlayerRegistryConflict,
   trackPlayer,
   updatePlayerHustle,
   type GangsterCharacter,
   type TrackedPlayer,
 } from "../../lib/player-registry";
+import { CLAIM_COOLDOWN_MS, getClaimTerms } from "../../lib/claim-economy";
 import { readXSession } from "../../lib/x-session";
 import { GET as getGangsterPrice } from "../gangster-price/route";
 
@@ -62,7 +65,18 @@ async function zeroHeatRate(player: TrackedPlayer) {
   return (DAILY_FARM_POOL_USD / price.gangsterUsd / 24) * share * profile.earningRate;
 }
 
-function hustleState(player: TrackedPlayer | null) {
+function hustleState(
+  player: TrackedPlayer | null,
+  atmPoolContributions: [number, number, number, number],
+) {
+  const now = Date.now();
+  const unclaimedSince = player?.hustleUnclaimedSince
+    ? new Date(player.hustleUnclaimedSince).getTime()
+    : null;
+  const lastClaimAt = player?.hustleLastClaimAt
+    ? new Date(player.hustleLastClaimAt).getTime()
+    : null;
+  const claimTerms = getClaimTerms(unclaimedSince, now);
   return {
     hustling: player?.hustling ?? false,
     startedAt: player?.hustleStartedAt ?? null,
@@ -71,7 +85,14 @@ function hustleState(player: TrackedPlayer | null) {
     unclaimed: player?.hustleUnclaimed ?? 0,
     claimed: player?.hustleClaimed ?? 0,
     heat: player?.hustleHeat ?? 0,
-    serverTime: Date.now(),
+    unclaimedSince,
+    lastClaimAt,
+    nextClaimAt: lastClaimAt ? lastClaimAt + CLAIM_COOLDOWN_MS : 0,
+    claimFeeBps: claimTerms.feeBps,
+    claimBonusBps: claimTerms.bonusBps,
+    claimHeldHours: claimTerms.heldHours,
+    atmPoolContributions,
+    serverTime: now,
   };
 }
 
@@ -103,12 +124,12 @@ export async function GET(request: Request) {
   }
   const player = await findPlayerByWallet(wallet);
   if (!player) {
-    return Response.json(hustleState(null), {
+    return Response.json(hustleState(null, await getHustleAtmPoolTotals()), {
       headers: { "Cache-Control": "private, no-store" },
     });
   }
   const settled = await updatePlayerHustle(wallet, "sync", await zeroHeatRate(player));
-  return Response.json(hustleState(settled), {
+  return Response.json(hustleState(settled, await getHustleAtmPoolTotals()), {
     headers: { "Cache-Control": "private, no-store" },
   });
 }
@@ -132,21 +153,28 @@ export async function POST(request: Request) {
 
   const ensured = await ensurePlayer(body.wallet);
   if (body.action === "claim") {
-    await updatePlayerHustle(
-      body.wallet,
-      "sync",
-      await zeroHeatRate(ensured),
-    );
-    const result = await claimPlayerHustleEarnings(body.wallet);
-    return Response.json({
-      ...hustleState(result?.player ?? null),
-      claim: result?.claim ?? { gross: 0, burned: 0, received: 0 },
-    });
+    try {
+      await updatePlayerHustle(
+        body.wallet,
+        "sync",
+        await zeroHeatRate(ensured),
+      );
+      const result = await claimPlayerHustleEarnings(body.wallet);
+      return Response.json({
+        ...hustleState(result?.player ?? null, await getHustleAtmPoolTotals()),
+        claim: result?.claim,
+      });
+    } catch (error) {
+      if (error instanceof PlayerRegistryConflict) {
+        return Response.json({ error: error.message }, { status: 409 });
+      }
+      throw error;
+    }
   }
   const player = await updatePlayerHustle(
     body.wallet,
     body.action,
     body.action === "start" ? 0 : await zeroHeatRate(ensured),
   );
-  return Response.json(hustleState(player));
+  return Response.json(hustleState(player, await getHustleAtmPoolTotals()));
 }
