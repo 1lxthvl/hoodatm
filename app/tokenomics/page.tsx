@@ -21,7 +21,7 @@ const atmOdds = [
   { rank: "Civilian", power: 1, odds: ["0.7000%", "0.0500%", "0.0105%", "0.0015%"] },
   { rank: "Hoodlum", power: 5, odds: ["3.5000%", "0.2500%", "0.0525%", "0.0075%"] },
   { rank: "Captain", power: 30, odds: ["21.0000%", "1.5000%", "0.3150%", "0.0450%"] },
-  { rank: "General", power: 135, odds: ["70.0000%", "6.7500%", "1.4175%", "0.2025%"] },
+  { rank: "General", power: 135, odds: ["48.0000%", "6.7500%", "1.4175%", "0.2025%"] },
   { rank: "OG", power: 750, odds: ["70.0000%", "37.5000%", "7.8750%", "1.1250%"] },
 ];
 
@@ -132,7 +132,7 @@ export default function GangstanomicsPage() {
       <section className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-8">
         <h2 className="text-2xl font-semibold text-white">ATM rewards & jackpot design</h2>
         <p className="mt-4 text-slate-300">
-          ATMs are jackpot tiers, not ETH dispensers. They pay $GANGSTER and can be hit every 6 hours, preserving idle farming value while rewarding strategic ATM strikes.
+          ATMs are jackpot tiers. They pay $GANGSTER and can be hit every 6 hours, preserving idle farming value while rewarding strategic ATM strikes.
         </p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {atmAllocs.map((item) => (
