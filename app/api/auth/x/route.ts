@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getRequestOrigin } from "../../../lib/request-origin";
 
@@ -30,8 +29,19 @@ export async function GET(request: Request) {
   authorizeUrl.searchParams.set("code_challenge_method", "S256");
 
   const response = NextResponse.redirect(authorizeUrl);
-  const cookieStore = await cookies();
-  cookieStore.set("hoodatm_x_oauth_state", state, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/" });
-  cookieStore.set("hoodatm_x_oauth_verifier", verifier, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/" });
+  response.cookies.set("hoodatm_x_oauth_state", state, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 600,
+    path: "/",
+  });
+  response.cookies.set("hoodatm_x_oauth_verifier", verifier, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 600,
+    path: "/",
+  });
   return response;
 }
