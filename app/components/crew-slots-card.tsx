@@ -17,6 +17,8 @@ export function CrewSlotsCard() {
   const canUnlock =
     nextGangsterSlotCostTokens > 0
     && currentPlayer.claimed >= nextGangsterSlotCostTokens;
+  const hasCodeGrantedGangster = activeGangsters.some((gangster) => gangster.source === "code");
+  const hasPaidGangster = activeGangsters.some((gangster) => gangster.source === "paid");
 
   return (
     <section className="mt-8 overflow-hidden rounded-[2rem] border border-cyan-300/20 bg-[radial-gradient(circle_at_12%_20%,rgba(34,211,238,.12),transparent_24rem),rgba(2,6,23,.7)] p-6 sm:p-8">
@@ -33,6 +35,13 @@ export function CrewSlotsCard() {
             $GANGSTER, and every later slot doubles: $20, $40, $80, and onward. Three
             unlocked slots officially make a Crew.
           </p>
+          {hasCodeGrantedGangster && !hasPaidGangster ? (
+            <p className="mt-3 rounded-2xl border border-amber-200/20 bg-amber-300/[0.06] p-4 text-sm leading-6 text-amber-50/80">
+              Your code-granted gangster can earn and claim now. Buy any gangster to unlock withdrawals and receive one extra active slot free.
+            </p>
+          ) : hasCodeGrantedGangster ? (
+            <p className="mt-3 text-sm font-bold text-lime-200">Paid-gangster withdrawal access active. Your code-claim bonus slot is permanent.</p>
+          ) : null}
         </div>
         <div className="min-w-[260px] rounded-2xl border border-white/10 bg-black/35 p-5">
           <p className="text-xs font-black uppercase tracking-[0.17em] text-slate-500">

@@ -35,6 +35,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     error HoldingObservationUnavailable();
     error InvalidUsername();
     error UsernameTaken();
+    error PaidGangsterRequired();
 
     IERC20 public constant GANGSTER = IERC20(0x6AE32f2620A4a2B55f4Fc4b9e3152c371Aa58EF0);
     address payable public constant TREASURY = payable(0x7657d90609046F47215Fc0Fb2BF012c88FF9f700);
@@ -134,6 +135,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     mapping(address => uint256) public jailIncidentAt;
     mapping(address => string) public usernames;
     mapping(bytes32 => address) public usernameOwner;
+    mapping(address => bool) public codeGrantedGangster;
+    mapping(address => bool) public paidGangster;
+    mapping(address => uint256) public gangsterSlots;
+    mapping(address => bool) public codeBonusSlotGranted;
     ATMConfig[4] public atms;
     uint256[4] public atmClaimPools;
     uint256[4] public reservedAtmClaimPools;
@@ -178,6 +183,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     event Withdrawn(address indexed player, uint256 amount, uint256 nextWithdrawalAt);
     event UsernameSet(address indexed player, string username);
     event LaidLow(address indexed player, uint256 readyAt);
+    event CodeGrantedGangsterMarked(address indexed player);
+    event CodeBonusSlotUnlocked(address indexed player, uint256 slots);
     event SnitchSettled(address indexed informant, address indexed target, bool jailed, uint256 cost);
     event JailPurchaseSettled(
         address indexed inmate,
@@ -263,6 +270,20 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         gangSystem = gangSystem_;
     }
 
+    /// @notice Mirrors a verified one-time character-code redemption into the game contract.
+    /// @dev The owner calls this only after the off-chain code registry binds the grant to this wallet.
+    function markCodeGrantedGangster(address account) external onlyOwner {
+        if (!players[account].joined || codeGrantedGangster[account]) revert InvalidAction();
+        codeGrantedGangster[account] = true;
+        if (gangsterSlots[account] == 0) gangsterSlots[account] = 1;
+        if (paidGangster[account] && !codeBonusSlotGranted[account]) {
+            gangsterSlots[account] += 1;
+            codeBonusSlotGranted[account] = true;
+            emit CodeBonusSlotUnlocked(account, gangsterSlots[account]);
+        }
+        emit CodeGrantedGangsterMarked(account);
+    }
+
     function releaseFromJail(address inmate) external {
         if (msg.sender != gangSystem) revert AccessDenied();
         if (block.timestamp >= jailedUntil[inmate]) revert InvalidAction();
@@ -288,6 +309,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
         player.joined = true;
         player.power = 1;
+        gangsterSlots[msg.sender] = 1;
         heatStartedAt[msg.sender] = block.timestamp;
         playerRewardUpdatedAt[msg.sender] = block.timestamp;
         totalPower += 1;
@@ -417,6 +439,17 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (amount > maxGangsterAmount) revert SlippageExceeded(amount, maxGangsterAmount);
 
         _collectGangsterSpend(msg.sender, amount);
+        bool firstPaidGangster = !paidGangster[msg.sender];
+        paidGangster[msg.sender] = true;
+        if (
+            firstPaidGangster
+                && codeGrantedGangster[msg.sender]
+                && !codeBonusSlotGranted[msg.sender]
+        ) {
+            gangsterSlots[msg.sender] += 1;
+            codeBonusSlotGranted[msg.sender] = true;
+            emit CodeBonusSlotUnlocked(msg.sender, gangsterSlots[msg.sender]);
+        }
         totalPower = totalPower - player.power + tierPower(targetTier);
         player.tier = targetTier;
         player.power = tierPower(targetTier);
@@ -482,6 +515,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint64 updatedAt;
         (averageHeld24h,, periodEnd, updatedAt) = holdingOracle.observations(account);
         nextWithdrawalAt = lastWithdrawalAt[account] + WITHDRAWAL_COOLDOWN;
+        if (codeGrantedGangster[account] && !paidGangster[account]) {
+            return (0, averageHeld24h, nextWithdrawalAt);
+        }
         if (
             updatedAt == 0 || periodEnd > block.timestamp
                 || block.timestamp - updatedAt > HOLDING_OBSERVATION_MAX_AGE
@@ -564,6 +600,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function withdraw() external nonReentrant whenNotPaused onlyActiveMember {
+        if (codeGrantedGangster[msg.sender] && !paidGangster[msg.sender]) {
+            revert PaidGangsterRequired();
+        }
         uint256 availableAt = lastWithdrawalAt[msg.sender] + WITHDRAWAL_COOLDOWN;
         if (lastWithdrawalAt[msg.sender] != 0 && availableAt > block.timestamp) {
             revert CooldownActive(availableAt);

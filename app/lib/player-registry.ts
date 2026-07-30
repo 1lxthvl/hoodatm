@@ -18,6 +18,7 @@ export type PlayerGangster = {
   character: GangsterCharacter;
   earningRate: number;
   code: string | null;
+  source: "code" | "paid" | "admin";
 };
 
 export type TrackedPlayer = {
@@ -33,6 +34,7 @@ export type TrackedPlayer = {
   characterCode: string | null;
   gangsterSlots: number;
   gangsterRoster: PlayerGangster[];
+  codeBonusSlotGranted: boolean;
   initiationPaid: boolean;
   hustling: boolean;
   hustleStartedAt: string | null;
@@ -63,24 +65,36 @@ async function readPlayersUnsafe(): Promise<TrackedPlayer[]> {
     >;
     return players.map((player) => {
       const legacyRoster = player.characterGrant
-        ? [{
+          ? [{
             character: player.characterGrant,
             earningRate: player.characterEarningRate ?? 50,
             code: player.characterCode ?? null,
+            source: player.characterCode ? "code" : "admin",
           }]
         : [];
-      const gangsterRoster = Array.isArray(player.gangsterRoster)
+      const gangsterRoster = (Array.isArray(player.gangsterRoster)
         ? player.gangsterRoster.filter((gangster) => (
             gangsterCharacters.includes(gangster.character)
             && Number.isFinite(gangster.earningRate)
           ))
-        : legacyRoster;
+        : legacyRoster).map((gangster) => ({
+          ...gangster,
+          source:
+            gangster.source === "code"
+            || gangster.source === "paid"
+            || gangster.source === "admin"
+              ? gangster.source
+              : gangster.code
+                ? "code"
+                : "admin",
+        }));
       const honoraryOg = player.xUsername?.toLowerCase() === "1lxthvl";
       if (honoraryOg && !gangsterRoster.some((gangster) => gangster.character === "OG")) {
         gangsterRoster.unshift({
           character: "OG",
           earningRate: 100,
           code: null,
+          source: "admin",
         });
       }
       return {
@@ -95,6 +109,7 @@ async function readPlayersUnsafe(): Promise<TrackedPlayer[]> {
         characterCode: gangsterRoster[0]?.code ?? null,
         gangsterSlots: Math.max(1, player.gangsterSlots ?? 1, gangsterRoster.length),
         gangsterRoster,
+        codeBonusSlotGranted: player.codeBonusSlotGranted ?? false,
         initiationPaid: player.initiationPaid ?? honoraryOg,
         hustling: player.hustling ?? false,
         hustleStartedAt: player.hustling ? player.hustleStartedAt ?? null : null,
@@ -176,6 +191,7 @@ export async function trackPlayer(input: {
   characterGrant?: GangsterCharacter | null;
   characterEarningRate?: number | null;
   characterCode?: string | null;
+  characterSource?: PlayerGangster["source"];
 }) {
   const operation = registryQueue.then(async () => {
     const players = await readPlayersUnsafe();
@@ -212,6 +228,7 @@ export async function trackPlayer(input: {
               character: existing.characterGrant,
               earningRate: existing.characterEarningRate ?? 50,
               code: existing.characterCode,
+              source: existing.characterCode ? "code" : "admin",
             }]
           : []
       );
@@ -220,6 +237,7 @@ export async function trackPlayer(input: {
           character: "OG",
           earningRate: 100,
           code: null,
+          source: "admin",
         });
         existing.gangsterSlots = Math.max(existing.gangsterSlots, existing.gangsterRoster.length);
         existing.characterGrant = "OG";
@@ -248,6 +266,7 @@ export async function trackPlayer(input: {
       existing.hustleLastClaimAt = existing.hustleLastClaimAt ?? null;
       existing.hustleAtmPoolContributions =
         existing.hustleAtmPoolContributions ?? [0, 0, 0, 0];
+      existing.codeBonusSlotGranted = existing.codeBonusSlotGranted ?? false;
       existing.lastSeenAt = now;
       await writePlayersUnsafe(players);
       return existing;
@@ -272,14 +291,16 @@ export async function trackPlayer(input: {
       characterCode: honoraryOg ? null : input.characterCode ?? null,
       gangsterSlots: 1,
       gangsterRoster: honoraryOg
-        ? [{ character: "OG", earningRate: 100, code: null }]
+        ? [{ character: "OG", earningRate: 100, code: null, source: "admin" }]
         : input.characterGrant
         ? [{
             character: input.characterGrant,
             earningRate: input.characterEarningRate ?? 50,
             code: input.characterCode ?? null,
+            source: input.characterSource ?? (input.characterCode ? "code" : "admin"),
         }]
         : [],
+      codeBonusSlotGranted: false,
       initiationPaid: honoraryOg,
       hustling: false,
       hustleStartedAt: null,
@@ -455,6 +476,7 @@ export async function updatePlayerCharacter(
           character: characterGrant,
           earningRate: 50,
           code: player.characterCode,
+          source: characterCode ? "code" : "admin",
         }]
       : [];
     player.gangsterSlots = Math.max(1, player.gangsterSlots ?? 1);
@@ -470,6 +492,7 @@ export async function addPlayerGangster(
   id: string,
   character: GangsterCharacter,
   characterCode: string | null = null,
+  source: PlayerGangster["source"] = characterCode ? "code" : "admin",
 ) {
   const operation = registryQueue.then(async () => {
     const players = await readPlayersUnsafe();
@@ -480,10 +503,61 @@ export async function addPlayerGangster(
     }
     player.gangsterRoster.push({
       character,
-      earningRate: 50,
+      earningRate: source === "code" ? 50 : 100,
       code: characterCode,
+      source,
     });
     const primary = player.gangsterRoster[0];
+    player.characterGrant = primary.character;
+    player.characterEarningRate = primary.earningRate;
+    player.characterCode = primary.code;
+    player.lastSeenAt = new Date().toISOString();
+    await writePlayersUnsafe(players);
+    return player;
+  });
+  registryQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+export async function recordPaidGangsterPurchase(
+  wallet: string,
+  character: GangsterCharacter,
+) {
+  const operation = registryQueue.then(async () => {
+    const players = await readPlayersUnsafe();
+    const player = players.find(
+      (candidate) => candidate.wallet.toLowerCase() === wallet.toLowerCase(),
+    );
+    if (!player) return null;
+
+    const hasCodeGrantedGangster = player.gangsterRoster.some(
+      (gangster) => gangster.source === "code",
+    );
+    const hasPaidGangster = player.gangsterRoster.some(
+      (gangster) => gangster.source === "paid",
+    );
+    if (
+      hasCodeGrantedGangster
+      && !hasPaidGangster
+      && !player.codeBonusSlotGranted
+    ) {
+      player.gangsterSlots += 1;
+      player.codeBonusSlotGranted = true;
+    }
+    if (player.gangsterRoster.length >= player.gangsterSlots) {
+      throw new PlayerRegistryConflict("Unlock another gangster slot before purchasing this character.");
+    }
+
+    player.gangsterRoster.push({
+      character,
+      earningRate: 100,
+      code: null,
+      source: "paid",
+    });
+    const primary = [...player.gangsterRoster].sort(
+      (left, right) => gangsterCharacters.indexOf(right.character)
+        - gangsterCharacters.indexOf(left.character),
+    )[0];
     player.characterGrant = primary.character;
     player.characterEarningRate = primary.earningRate;
     player.characterCode = primary.code;

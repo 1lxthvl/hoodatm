@@ -5,7 +5,7 @@ import { ArrowRight, Coins, Crown, Flame, ShieldCheck, Trophy, WalletCards } fro
 import { formatGangster, useMockGang } from "../components/mock-gang-provider";
 
 export default function LeaderboardPage() {
-  const { players, currentPlayer, burnedTotal, lastWithdrawal, withdrawBalance, pendingAction, withdrawalGrossLimit, averageHeld24h } = useMockGang();
+  const { players, currentPlayer, burnedTotal, lastWithdrawal, withdrawBalance, pendingAction, withdrawalGrossLimit, withdrawalEligible, withdrawalRestriction, averageHeld24h } = useMockGang();
   const rankedPlayers = [...players].sort((a, b) => b.earned - a.earned);
 
   return (
@@ -60,15 +60,15 @@ export default function LeaderboardPage() {
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-lime-200">Secure your stack</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">Withdraw up to {formatGangster(withdrawalGrossLimit)} $GANGSTER</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Available every 12 hours. The amount is the smaller of half your claimed in-game balance and half your verified 24-hour average connected-wallet holding ({formatGangster(averageHeld24h)}).</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Available every 12 hours. The amount is the smaller of half your claimed in-game balance and half your verified 24-hour average connected-wallet holding ({formatGangster(averageHeld24h)}). {withdrawalRestriction}</p>
           </div>
           <button
             type="button"
             onClick={() => void withdrawBalance()}
-            disabled={withdrawalGrossLimit <= 0 || pendingAction !== null}
+            disabled={!withdrawalEligible || withdrawalGrossLimit <= 0 || pendingAction !== null}
             className="shrink-0 rounded-full bg-lime-300 px-5 py-3 font-bold text-[#10130c] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {pendingAction === "Withdraw" ? "Confirming withdrawal…" : "Withdraw"}
+            {pendingAction === "Withdraw" ? "Confirming withdrawal…" : !withdrawalEligible ? "Paid gangster required" : "Withdraw"}
           </button>
         </div>
         {lastWithdrawal && (

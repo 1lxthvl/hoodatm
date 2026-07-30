@@ -202,6 +202,25 @@ export default async function WhitelistPage() {
               ))}
             </ul>
           </section>
+          <section className="rounded-[2rem] border border-amber-300/25 bg-[linear-gradient(145deg,rgba(251,191,36,.12),rgba(15,23,42,.82))] p-6">
+            <Trophy className="h-7 w-7 text-amber-200" />
+            <h2 className="mt-4 text-2xl font-semibold text-white">Whitelist leaderboard rewards</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Your final points total sets the podium. Every referral raises your points multiplier, so the strongest crew-building run has the edge.
+            </p>
+            <ol className="mt-5 space-y-3">
+              {[
+                ["1st place", "OG Gangster"],
+                ["2nd place", "General"],
+                ["3rd place", "Captain"],
+              ].map(([place, reward]) => (
+                <li key={place} className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <span className="text-sm font-black uppercase tracking-[0.14em] text-amber-200">{place}</span>
+                  <span className="font-bold text-white">{reward}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
           <AccessCodeCard />
         </aside>
       </section>

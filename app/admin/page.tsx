@@ -24,7 +24,9 @@ type TrackedPlayer = {
     character: GangsterCharacter;
     earningRate: number;
     code: string | null;
+    source: "code" | "paid" | "admin";
   }>;
+  codeBonusSlotGranted: boolean;
   initiationPaid: boolean;
   category: Category;
   firstSeenAt: string;
