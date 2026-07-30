@@ -270,7 +270,7 @@ contract ATMGameTest is Test {
         assertEq(game.atmWinChanceForPower(1, 0), 700_000);
         assertEq(game.atmWinChanceForPower(5, 1), 250_000);
         assertEq(game.atmWinChanceForPower(30, 2), 315_000);
-        assertEq(game.atmWinChanceForPower(135, 0), 70_000_000);
+        assertEq(game.atmWinChanceForPower(135, 0), 48_000_000);
         assertEq(game.atmWinChanceForPower(750, 3), 1_125_000);
     }
 

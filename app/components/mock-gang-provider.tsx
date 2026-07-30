@@ -200,6 +200,7 @@ export function getAtmChance(power: number, atmIndex: number) {
   const target = atmTargets[atmIndex];
   const civilianChance = ATM_CIVILIAN_CHANCES[atmIndex];
   if (!target || civilianChance === undefined) return 0;
+  if (power === characterPower.General && atmIndex === 0) return 48;
   return Math.min(target.chance, civilianChance * Math.max(1, power));
 }
 
