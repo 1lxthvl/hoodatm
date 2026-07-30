@@ -20,6 +20,7 @@ contract GangsterHoldingOracle is Ownable2Step {
     address public immutable gangster;
     address public reporter;
     mapping(address => Observation) public observations;
+    mapping(bytes32 => bool) public isBatchSubmitted;
 
     event ReporterUpdated(address indexed reporter);
     event AverageBalanceUpdated(
@@ -28,6 +29,7 @@ contract GangsterHoldingOracle is Ownable2Step {
         uint64 periodStart,
         uint64 periodEnd
     );
+    event BatchSubmitted(bytes32 indexed batchId, uint64 indexed reportTimestamp, uint256 accounts);
 
     constructor(address gangster_, address owner_, address reporter_) Ownable(owner_) {
         if (gangster_ == address(0) || owner_ == address(0) || reporter_ == address(0)) {
@@ -51,6 +53,38 @@ contract GangsterHoldingOracle is Ownable2Step {
         uint64 periodEnd
     ) external {
         if (msg.sender != reporter) revert UnauthorizedReporter();
+        _submitAverageBalances(accounts, averages, periodStart, periodEnd);
+    }
+
+    /// @notice Idempotent hourly reporter entrypoint used by the holding indexer.
+    function submitBatch(
+        bytes32 batchId,
+        uint64 reportTimestamp,
+        address[] calldata accounts,
+        uint256[] calldata averages
+    ) external {
+        if (msg.sender != reporter) revert UnauthorizedReporter();
+        if (
+            reportTimestamp < 24 hours
+                || batchId != keccak256(abi.encode(reportTimestamp, accounts, averages))
+                || isBatchSubmitted[batchId]
+        ) revert InvalidObservation();
+        isBatchSubmitted[batchId] = true;
+        _submitAverageBalances(
+            accounts,
+            averages,
+            reportTimestamp - uint64(24 hours),
+            reportTimestamp
+        );
+        emit BatchSubmitted(batchId, reportTimestamp, accounts.length);
+    }
+
+    function _submitAverageBalances(
+        address[] calldata accounts,
+        uint256[] calldata averages,
+        uint64 periodStart,
+        uint64 periodEnd
+    ) private {
         if (
             accounts.length == 0 || accounts.length != averages.length
                 || periodEnd > block.timestamp || periodEnd < periodStart + 24 hours

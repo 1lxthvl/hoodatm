@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDownUp, Copy, KeyRound, Plus, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
+import { ArrowDownUp, Copy, Download, KeyRound, Plus, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
 
 const categories = ["Connected", "Whitelisted", "Initiated", "Active", "Flagged"] as const;
 const gangsterCharacters = ["Hoodlum", "Captain", "General", "OG"] as const;
@@ -64,6 +64,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
+  const [backingUp, setBackingUp] = useState(false);
 
   const loadPlayers = useCallback(async () => {
     setLoading(true);
@@ -208,6 +209,35 @@ export default function AdminPage() {
     }
   }
 
+  async function downloadLocalBackup() {
+    setBackingUp(true);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/backup", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(response.status === 403
+          ? "Admin X session required."
+          : "Could not download registry backup.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const matched = /filename="([^"]+)"/.exec(disposition);
+      const filename = matched?.[1] ?? `hoodatm-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Backup download failed.");
+    } finally {
+      setBackingUp(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <section className="rounded-[2rem] border border-lime-300/20 bg-[radial-gradient(circle_at_85%_15%,rgba(163,230,53,.12),transparent_28rem),rgba(8,11,9,.95)] p-7 sm:p-9">
@@ -221,14 +251,25 @@ export default function AdminPage() {
               Review every wallet that connected, its verified X identity, access code, referral username, network address, and current account category.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadPlayers()}
-            disabled={loading}
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white disabled:opacity-40"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => void downloadLocalBackup()}
+              disabled={backingUp || loading}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-lime-300/30 bg-lime-300/10 px-5 py-3 text-sm font-bold text-lime-100 disabled:opacity-40"
+            >
+              <Download className={`h-4 w-4 ${backingUp ? "animate-pulse" : ""}`} />
+              {backingUp ? "Preparing backup…" : "Download local backup"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadPlayers()}
+              disabled={loading}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white disabled:opacity-40"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+          </div>
         </div>
       </section>
 

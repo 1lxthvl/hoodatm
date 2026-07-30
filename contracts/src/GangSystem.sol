@@ -4,7 +4,10 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {GangsterPriceOracle} from "./GangsterPriceOracle.sol";
+import {RandomnessResolver} from "./RandomnessResolver.sol";
 
 interface IATMGameGangHook {
     function hasActiveAccess(address account) external view returns (bool);
@@ -27,7 +30,7 @@ interface IATMGameGangHook {
 
 /// @notice On-chain gangs, ranks, invitations, and same-gang jail releases.
 /// @dev The ATMGame owner must authorize this contract through setGangSystem.
-contract GangSystem is ReentrancyGuard {
+contract GangSystem is ReentrancyGuard, Ownable2Step {
     using SafeERC20 for IERC20;
 
     error AccessDenied();
@@ -39,6 +42,8 @@ contract GangSystem is ReentrancyGuard {
     error RevealTooEarly();
     error RevealExpired();
     error SlippageExceeded(uint256 required, uint256 maximum);
+    error ContractPaused();
+    error ResolverDeadlineInvalid();
 
     IERC20 public constant GANGSTER = IERC20(0x6AE32f2620A4a2B55f4Fc4b9e3152c371Aa58EF0);
     address public constant TREASURY = 0x7657d90609046F47215Fc0Fb2BF012c88FF9f700;
@@ -47,9 +52,8 @@ contract GangSystem is ReentrancyGuard {
     uint256 public constant CREATION_USD_E18 = 10 ether;
     uint256 public constant JAILBREAK_USD_E18 = 2 ether;
     uint256 public constant JAILBREAK_CHANCE_BPS = 2_500;
-    uint256 public constant MIN_REVEAL_BLOCKS = 2;
-    uint256 public constant MAX_REVEAL_BLOCKS = 200;
-
+    uint256 public constant MIN_REVEAL_DELAY = 30 seconds;
+    uint256 public constant ACTION_TIMEOUT = 1 hours;
     struct Gang {
         address owner;
         string name;
@@ -60,7 +64,9 @@ contract GangSystem is ReentrancyGuard {
     struct PendingJailbreak {
         address inmate;
         bytes32 commitment;
-        uint64 commitBlock;
+        address resolver;
+        uint64 committedAt;
+        uint64 expiresAt;
         uint64 nonce;
         uint256 gangId;
         uint256 cost;
@@ -68,6 +74,8 @@ contract GangSystem is ReentrancyGuard {
 
     IATMGameGangHook public immutable game;
     GangsterPriceOracle public immutable oracle;
+    RandomnessResolver public immutable randomnessResolver;
+    bool public paused = true;
 
     uint256 public gangCount;
     mapping(uint256 => Gang) public gangs;
@@ -103,16 +111,37 @@ contract GangSystem is ReentrancyGuard {
         uint256 cost
     );
     event GangJailbreakForfeited(bytes32 indexed requestId, address indexed payer);
+    event PauseUpdated(bool paused);
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
 
     modifier onlyActiveMember() {
         if (!game.hasActiveAccess(msg.sender)) revert AccessDenied();
         _;
     }
 
-    constructor(IATMGameGangHook game_, GangsterPriceOracle oracle_) {
-        if (address(game_) == address(0) || address(oracle_) == address(0)) revert InvalidGang();
+    constructor(
+        IATMGameGangHook game_,
+        GangsterPriceOracle oracle_,
+        RandomnessResolver randomnessResolver_
+    )
+        Ownable(TREASURY)
+    {
+        if (
+            address(game_) == address(0) || address(oracle_) == address(0)
+                || address(randomnessResolver_) == address(0)
+        ) revert InvalidGang();
         game = game_;
         oracle = oracle_;
+        randomnessResolver = randomnessResolver_;
+    }
+
+    function setPaused(bool paused_) external onlyOwner {
+        paused = paused_;
+        emit PauseUpdated(paused_);
     }
 
     function creationCost() public view returns (uint256) {
@@ -130,6 +159,7 @@ contract GangSystem is ReentrancyGuard {
     function createGang(string calldata name, string calldata tag, uint256 maxGangsterAmount)
         external
         nonReentrant
+        whenNotPaused
         onlyActiveMember
         returns (uint256 gangId)
     {
@@ -155,7 +185,7 @@ contract GangSystem is ReentrancyGuard {
         emit GangCreated(gangId, msg.sender, name, tag, cost);
     }
 
-    function inviteMember(address member) external onlyActiveMember {
+    function inviteMember(address member) external whenNotPaused onlyActiveMember {
         uint256 gangId = gangOf[msg.sender];
         if (gangId == 0 || gangs[gangId].owner != msg.sender) revert AccessDenied();
         if (member == address(0) || gangOf[member] != 0) revert InvalidMember();
@@ -163,7 +193,7 @@ contract GangSystem is ReentrancyGuard {
         emit GangMemberInvited(gangId, member);
     }
 
-    function acceptInvitation() external onlyActiveMember {
+    function acceptInvitation() external whenNotPaused onlyActiveMember {
         if (gangOf[msg.sender] != 0) revert InvalidMember();
         uint256 gangId = invitedGang[msg.sender];
         if (gangId == 0 || gangs[gangId].owner == address(0)) revert InvalidGang();
@@ -175,7 +205,7 @@ contract GangSystem is ReentrancyGuard {
         emit GangMemberJoined(gangId, msg.sender);
     }
 
-    function setMemberRank(address member, uint8 rank) external onlyActiveMember {
+    function setMemberRank(address member, uint8 rank) external whenNotPaused onlyActiveMember {
         uint256 gangId = gangOf[msg.sender];
         if (gangId == 0 || gangs[gangId].owner != msg.sender) revert AccessDenied();
         if (gangOf[member] != gangId || rank > 3) revert InvalidMember();
@@ -186,6 +216,7 @@ contract GangSystem is ReentrancyGuard {
     function commitJailbreak(address inmate, bytes32 commitment, uint256 maxGangsterAmount)
         external
         nonReentrant
+        whenNotPaused
         onlyActiveMember
         returns (bytes32 requestId)
     {
@@ -205,7 +236,9 @@ contract GangSystem is ReentrancyGuard {
         pendingJailbreaks[msg.sender] = PendingJailbreak(
             inmate,
             commitment,
-            uint64(block.number),
+            randomnessResolver.resolver(),
+            uint64(block.timestamp),
+            uint64(block.timestamp + ACTION_TIMEOUT),
             nonce,
             gangId,
             cost
@@ -213,11 +246,19 @@ contract GangSystem is ReentrancyGuard {
         emit GangJailbreakCommitted(requestId, msg.sender, inmate, gangId, nonce);
     }
 
-    function revealJailbreak(bytes32 secret) external nonReentrant onlyActiveMember {
+    function revealJailbreak(
+        bytes32 secret,
+        uint256 randomWord,
+        uint64 deadline,
+        bytes calldata resolverSignature
+    ) external nonReentrant whenNotPaused onlyActiveMember {
         PendingJailbreak memory action = pendingJailbreaks[msg.sender];
         if (action.commitment == bytes32(0)) revert NoPendingAction();
-        if (block.number <= uint256(action.commitBlock) + MIN_REVEAL_BLOCKS - 1) revert RevealTooEarly();
-        if (block.number > uint256(action.commitBlock) + MAX_REVEAL_BLOCKS) revert RevealExpired();
+        if (block.timestamp < uint256(action.committedAt) + MIN_REVEAL_DELAY) revert RevealTooEarly();
+        if (block.timestamp > action.expiresAt) revert RevealExpired();
+        if (deadline < block.timestamp || deadline > action.expiresAt) {
+            revert ResolverDeadlineInvalid();
+        }
         if (
             keccak256(abi.encodePacked(msg.sender, action.inmate, secret, action.nonce))
                 != action.commitment
@@ -225,15 +266,15 @@ contract GangSystem is ReentrancyGuard {
 
         bytes32 requestId =
             keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, action.nonce));
-        uint256 entropy = uint256(
-            keccak256(
-                abi.encodePacked(
-                    secret,
-                    blockhash(uint256(action.commitBlock) + 1),
-                    requestId
-                )
-            )
+        randomWord = randomnessResolver.consume(
+            requestId,
+            action.commitment,
+            randomWord,
+            deadline,
+            action.resolver,
+            resolverSignature
         );
+        uint256 entropy = uint256(keccak256(abi.encodePacked(secret, randomWord, requestId)));
         delete pendingJailbreaks[msg.sender];
 
         bool freed = action.gangId != 0 && gangOf[msg.sender] == action.gangId
@@ -247,7 +288,7 @@ contract GangSystem is ReentrancyGuard {
     function forfeitExpiredJailbreak(address payer) external {
         PendingJailbreak memory action = pendingJailbreaks[payer];
         if (action.commitment == bytes32(0)) revert NoPendingAction();
-        if (block.number <= uint256(action.commitBlock) + MAX_REVEAL_BLOCKS) revert RevealTooEarly();
+        if (block.timestamp <= action.expiresAt) revert RevealTooEarly();
         delete pendingJailbreaks[payer];
         bytes32 requestId =
             keccak256(abi.encodePacked(block.chainid, address(this), payer, action.nonce));

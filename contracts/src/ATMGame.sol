@@ -8,9 +8,11 @@ import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {GangsterPriceOracle} from "./GangsterPriceOracle.sol";
 import {GangsterHoldingOracle} from "./GangsterHoldingOracle.sol";
+import {RandomnessResolver} from "./RandomnessResolver.sol";
+import {ATMGameMath} from "./ATMGameMath.sol";
 
 /// @notice Production game accounting for hoodATM on Robinhood Chain.
-/// @dev Chance-based actions use a two-transaction future-block commit/reveal flow.
+/// @dev Chance-based actions require a player reveal and an EIP-712 resolver attestation.
 contract ATMGame is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -36,40 +38,44 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     error InvalidUsername();
     error UsernameTaken();
     error PaidGangsterRequired();
+    error ResolverDeadlineInvalid();
 
-    IERC20 public constant GANGSTER = IERC20(0x6AE32f2620A4a2B55f4Fc4b9e3152c371Aa58EF0);
-    address payable public constant TREASURY = payable(0x7657d90609046F47215Fc0Fb2BF012c88FF9f700);
-    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+    IERC20 internal constant GANGSTER = IERC20(0x6AE32f2620A4a2B55f4Fc4b9e3152c371Aa58EF0);
+    address payable internal constant TREASURY = payable(0x7657d90609046F47215Fc0Fb2BF012c88FF9f700);
+    address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
-    uint256 public constant JOIN_USD_E18 = 5 ether;
-    uint256 public constant ACCESS_HOLD_USD_E18 = 10 ether;
-    uint256 public constant DAILY_BASE_FARM_MIN_USD_E18 = 5 ether;
-    uint256 public constant DAILY_BASE_FARM_MAX_USD_E18 = 10 ether;
-    uint256 public constant CLAIM_BURN_BPS = 1_000;
-    uint256 public constant SPEND_TO_FARM_BPS = 2_500;
-    uint256 public constant MAX_CLAIM_FEE_BPS = 2_000;
-    uint256 public constant MAX_CLAIM_BONUS_BPS = 2_000;
-    uint256 public constant CLAIM_STEP_BPS = 200;
-    uint256 public constant CLAIM_COOLDOWN = 1 hours;
-    uint256 public constant CLAIM_FEE_END_HOUR = 10;
-    uint256 public constant CLAIM_BONUS_CAP_HOUR = 20;
-    uint256 public constant BPS = 10_000;
-    uint256 public constant ACC_REWARD_PRECISION = 1e24;
-    uint256 public constant ACTION_COOLDOWN = 6 hours;
-    uint256 public constant WITHDRAWAL_COOLDOWN = 12 hours;
-    uint256 public constant WITHDRAWAL_BPS = 5_000;
-    uint256 public constant HOLDING_OBSERVATION_MAX_AGE = 1 hours;
-    uint256 public constant CHANCE_PRECISION = 100_000_000;
-    uint256 public constant JAIL_DURATION = 3 hours;
-    uint256 public constant SNITCH_WINDOW = 24 hours;
-    uint256 public constant SNITCH_CHANCE_BPS = 500;
-    uint256 public constant SNITCH_USD_E18 = 1 ether;
-    uint256 public constant JAIL_PHONE_USD_E18 = 2 ether;
-    uint256 public constant MIN_REVEAL_BLOCKS = 2;
-    uint256 public constant MAX_REVEAL_BLOCKS = 200;
-
+    uint256 internal constant JOIN_USD_E18 = 5 ether;
+    uint256 internal constant ACCESS_HOLD_USD_E18 = 10 ether;
+    uint256 internal constant DAILY_BASE_FARM_MIN_USD_E18 = 2.5 ether;
+    uint256 internal constant DAILY_BASE_FARM_MAX_USD_E18 = 5 ether;
+    uint256 internal constant DAILY_BASE_FARM_PURCHASE_BOOST_BPS = 1_000;
+    uint256 internal constant DAILY_BASE_FARM_PURCHASE_CAP = 10;
+    uint256 internal constant CLAIM_BURN_BPS = 1_000;
+    uint256 internal constant SPEND_TO_FARM_BPS = 2_500;
+    uint256 internal constant MAX_CLAIM_FEE_BPS = 2_000;
+    uint256 internal constant MAX_CLAIM_BONUS_BPS = 2_000;
+    uint256 internal constant CLAIM_STEP_BPS = 200;
+    uint256 internal constant CLAIM_COOLDOWN = 1 hours;
+    uint256 internal constant CLAIM_FEE_END_HOUR = 10;
+    uint256 internal constant CLAIM_BONUS_CAP_HOUR = 20;
+    uint256 internal constant BPS = 10_000;
+    uint256 internal constant ACC_REWARD_PRECISION = 1e24;
+    uint256 internal constant ACTION_COOLDOWN = 6 hours;
+    uint256 internal constant WITHDRAWAL_COOLDOWN = 12 hours;
+    uint256 internal constant WITHDRAWAL_BPS = 5_000;
+    uint256 internal constant HOLDING_OBSERVATION_MAX_AGE = 1 hours;
+    uint256 internal constant CHANCE_PRECISION = 100_000_000;
+    uint256 internal constant JAIL_DURATION = 3 hours;
+    uint256 internal constant SNITCH_WINDOW = 24 hours;
+    uint256 internal constant SNITCH_CHANCE_BPS = 500;
+    uint256 internal constant SNITCH_USD_E18 = 1 ether;
+    uint256 internal constant JAIL_PHONE_USD_E18 = 2 ether;
+    uint256 internal constant MIN_REVEAL_DELAY = 30 seconds;
+    uint256 internal constant ACTION_TIMEOUT = 1 hours;
     GangsterPriceOracle public immutable oracle;
     GangsterHoldingOracle public immutable holdingOracle;
+    RandomnessResolver internal immutable randomnessResolver;
+    ATMGameMath internal immutable gameMath;
     bool public paused = true;
     address public gangSystem;
 
@@ -96,7 +102,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         ActionKind kind;
         address target;
         bytes32 commitment;
-        uint64 commitBlock;
+        address resolver;
+        uint64 committedAt;
+        uint64 expiresAt;
         uint64 nonce;
         uint8 atmIndex;
         uint256 forfeiture;
@@ -112,16 +120,16 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     mapping(address => Player) public players;
-    mapping(address => PendingAction) public pendingActions;
-    mapping(address => uint64) public actionNonces;
+    mapping(address => PendingAction) internal pendingActions;
+    mapping(address => uint64) internal actionNonces;
     mapping(address => mapping(address => uint256)) public playerAttackAvailableAt;
     mapping(address => mapping(uint8 => uint256)) public atmAvailableAt;
     mapping(address => uint256) public lastWithdrawalAt;
     mapping(address => uint256) public claimedBalance;
     mapping(address => uint256) public lastClaimAt;
     mapping(address => uint256) public unclaimedSince;
-    mapping(address => uint256) public playerRewardUpdatedAt;
-    mapping(address => uint256) public heatStartedAt;
+    mapping(address => uint256) internal playerRewardUpdatedAt;
+    mapping(address => uint256) internal heatStartedAt;
     mapping(address => uint256) public layLowUntil;
     mapping(address => uint256) public jailedUntil;
     mapping(address => address) public snitchTarget;
@@ -152,7 +160,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     uint256 public reservedBonusPool;
     uint256 public totalAtmClaimPool;
     uint256 public spendingFarmPoolContributed;
-    uint256 public referralEntryPoolAllocatedEth;
+    uint256 public referralEntryPoolAllocatedGangster;
+    uint256 public activePurchasedGangsters;
 
     event PauseUpdated(bool paused);
     event Joined(
@@ -185,6 +194,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     event LaidLow(address indexed player, uint256 readyAt);
     event CodeGrantedGangsterMarked(address indexed player);
     event CodeBonusSlotUnlocked(address indexed player, uint256 slots);
+    event ActivePurchasedGangstersUpdated(uint256 activePurchasedGangsters, uint256 dailyBaseFarmUsdE18);
     event SnitchSettled(address indexed informant, address indexed target, bool jailed, uint256 cost);
     event JailPurchaseSettled(
         address indexed inmate,
@@ -237,16 +247,25 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         _;
     }
 
-    constructor(GangsterPriceOracle oracle_, GangsterHoldingOracle holdingOracle_) Ownable(TREASURY) {
+    constructor(
+        GangsterPriceOracle oracle_,
+        GangsterHoldingOracle holdingOracle_,
+        RandomnessResolver randomnessResolver_,
+        ATMGameMath gameMath_
+    ) Ownable(TREASURY) {
         if (
             address(oracle_) == address(0) || oracle_.gangster() != address(GANGSTER)
                 || address(holdingOracle_) == address(0)
                 || holdingOracle_.gangster() != address(GANGSTER)
+                || address(randomnessResolver_) == address(0)
+                || address(gameMath_) == address(0)
         ) {
             revert InvalidAction();
         }
         oracle = oracle_;
         holdingOracle = holdingOracle_;
+        randomnessResolver = randomnessResolver_;
+        gameMath = gameMath_;
         lastRewardTime = block.timestamp;
 
         // Civilian chances scale by tier power and can never exceed the original base chance.
@@ -268,6 +287,15 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     function setGangSystem(address gangSystem_) external onlyOwner {
         if (gangSystem_ == address(0)) revert InvalidAction();
         gangSystem = gangSystem_;
+    }
+
+    function setActivePurchasedGangsters(uint256 count) external onlyOwner {
+        activePurchasedGangsters = count;
+        emit ActivePurchasedGangstersUpdated(count, dailyBaseFarmUsd());
+    }
+
+    function dailyBaseFarmUsd() public view returns (uint256) {
+        return gameMath.dailyBaseFarmUsd(activePurchasedGangsters);
     }
 
     /// @notice Mirrors a verified one-time character-code redemption into the game contract.
@@ -303,8 +331,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (referrer != address(0)) {
             if (referrer == msg.sender || !players[referrer].joined) revert InvalidReferrer();
             players[referrer].directReferrals++;
-            referralPoolAllocation = (requiredEth * 250) / BPS;
-            referralEntryPoolAllocatedEth += referralPoolAllocation;
+            referralPoolAllocation =
+                oracle.quoteGangsterForUsd((JOIN_USD_E18 * 250) / BPS);
+            referralEntryPoolAllocatedGangster += referralPoolAllocation;
         }
 
         player.joined = true;
@@ -327,9 +356,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function hasActiveAccess(address account) public view returns (bool) {
-        if (!players[account].joined) return false;
-        uint256 requiredBalance = oracle.quoteGangsterForUsd(ACCESS_HOLD_USD_E18);
-        return GANGSTER.balanceOf(account) >= requiredBalance;
+        return _hasLiveAccess(account);
     }
 
     function requiredGangsterHold() external view returns (uint256) {
@@ -357,14 +384,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function currentHeat(address account) public view returns (uint8) {
-        uint256 startedAt = heatStartedAt[account];
-        if (startedAt == 0) return 0;
-        if (block.timestamp < layLowUntil[account]) {
-            return uint8((layLowUntil[account] - block.timestamp + 59 seconds) / 1 minutes);
-        }
-        if (startedAt > block.timestamp) return 0;
-        uint256 heat = (block.timestamp - startedAt) / 1 minutes;
-        return uint8(heat < 100 ? heat : 100);
+        return gameMath.currentHeat(
+            heatStartedAt[account], layLowUntil[account], block.timestamp
+        );
     }
 
     function layLow() external whenNotPaused onlyActiveMember {
@@ -403,22 +425,14 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         return usernameOwner[keccak256(bytes(username))];
     }
 
-    function tierCostUsd(uint8 tier) public pure returns (uint256) {
-        if (tier == 0) return 0;
-        if (tier == 1) return 2.5 ether;
-        if (tier == 2) return 12.5 ether;
-        if (tier == 3) return 50 ether;
-        if (tier == 4) return 250 ether;
-        revert InvalidTier();
+    function tierCostUsd(uint8 tier) public view returns (uint256) {
+        if (tier > 4) revert InvalidTier();
+        return gameMath.tierCostUsd(tier);
     }
 
-    function tierPower(uint8 tier) public pure returns (uint32) {
-        if (tier == 0) return 1;
-        if (tier == 1) return 5;
-        if (tier == 2) return 30;
-        if (tier == 3) return 135;
-        if (tier == 4) return 750;
-        revert InvalidTier();
+    function tierPower(uint8 tier) public view returns (uint32) {
+        if (tier > 4) revert InvalidTier();
+        return gameMath.tierPower(tier);
     }
 
     function quoteTierUpgrade(address account, uint8 targetTier) public view returns (uint256) {
@@ -441,6 +455,13 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         _collectGangsterSpend(msg.sender, amount);
         bool firstPaidGangster = !paidGangster[msg.sender];
         paidGangster[msg.sender] = true;
+        if (firstPaidGangster) {
+            activePurchasedGangsters += 1;
+            emit ActivePurchasedGangstersUpdated(
+                activePurchasedGangsters,
+                dailyBaseFarmUsd()
+            );
+        }
         if (
             firstPaidGangster
                 && codeGrantedGangster[msg.sender]
@@ -458,9 +479,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function fundRewards(uint256 amount, uint256 duration) external onlyOwner nonReentrant {
-        uint256 minimumAmount = oracle.quoteGangsterForUsd(DAILY_BASE_FARM_MIN_USD_E18);
-        uint256 maximumAmount = oracle.quoteGangsterForUsd(DAILY_BASE_FARM_MAX_USD_E18);
-        if (duration != 1 days || amount < minimumAmount || amount > maximumAmount) {
+        uint256 requiredAmount = oracle.quoteGangsterForUsd(dailyBaseFarmUsd());
+        if (duration != 1 days || amount != requiredAmount) {
             revert InvalidDuration();
         }
         _updateGlobal();
@@ -495,6 +515,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
     function pendingRewards(address account) external view returns (uint256) {
         Player storage player = players[account];
+        if (!_hasLiveAccess(account)) return player.unclaimed;
         uint256 currentAccumulator = accRewardPerPower;
         uint256 applicableTime = block.timestamp < rewardPeriodFinish ? block.timestamp : rewardPeriodFinish;
         if (applicableTime > lastRewardTime && totalPower != 0) {
@@ -504,6 +525,11 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint256 pending =
             ((uint256(player.power) * currentAccumulator) / ACC_REWARD_PRECISION) - player.rewardDebt;
         return player.unclaimed + (pending * earningMultiplierBps(account)) / BPS;
+    }
+
+    /// @notice Permissionless reward checkpoint used by keepers when live hold access changes.
+    function checkpointRewards(address account) external {
+        _updatePlayer(account);
     }
 
     function withdrawalQuote(address account)
@@ -558,19 +584,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function claimRates(address account) public view returns (uint16 feeBps, uint16 bonusBps) {
-        uint256 startedAt = unclaimedSince[account];
-        uint256 heldHours = startedAt == 0 || startedAt >= block.timestamp
-            ? 0
-            : (block.timestamp - startedAt) / 1 hours;
-        if (heldHours < CLAIM_FEE_END_HOUR) {
-            feeBps = uint16(MAX_CLAIM_FEE_BPS - heldHours * CLAIM_STEP_BPS);
-        }
-        if (heldHours > CLAIM_FEE_END_HOUR) {
-            uint256 bonusHours = heldHours - CLAIM_FEE_END_HOUR;
-            uint256 cappedHours = CLAIM_BONUS_CAP_HOUR - CLAIM_FEE_END_HOUR;
-            if (bonusHours > cappedHours) bonusHours = cappedHours;
-            bonusBps = uint16(bonusHours * CLAIM_STEP_BPS);
-        }
+        return gameMath.claimRates(unclaimedSince[account], block.timestamp);
     }
 
     function claim() external nonReentrant whenNotPaused onlyActiveMember {
@@ -624,8 +638,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (atmIndex >= 4) revert InvalidAction();
         if (power == 135 && atmIndex == 0) return 48_000_000;
         ATMConfig memory config = atms[atmIndex];
-        uint256 scaled = uint256(config.civilianChanceE8) * power;
-        return uint32(scaled < config.maximumChanceE8 ? scaled : config.maximumChanceE8);
+        return gameMath.atmWinChance(
+            power, atmIndex, config.civilianChanceE8, config.maximumChanceE8
+        );
     }
 
     function commitPlayerRobbery(address target, bytes32 commitment)
@@ -648,21 +663,16 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             revert InsufficientUnclaimed();
         }
 
-        uint64 nonce = ++actionNonces[msg.sender];
-        requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
-        pendingActions[msg.sender] = PendingAction({
-            kind: ActionKind.PlayerRobbery,
-            target: target,
-            commitment: commitment,
-            commitBlock: uint64(block.number),
-            nonce: nonce,
-            atmIndex: 0,
-            forfeiture: (players[msg.sender].unclaimed * 2_500) / BPS,
-            reservedReward: 0,
-            reservedAtmPool: 0
-        });
+        requestId = _storePendingAction(
+            ActionKind.PlayerRobbery,
+            target,
+            commitment,
+            0,
+            (players[msg.sender].unclaimed * 2_500) / BPS,
+            0,
+            0
+        );
         playerAttackAvailableAt[msg.sender][target] = block.timestamp + ACTION_COOLDOWN;
-        emit ActionCommitted(requestId, msg.sender, ActionKind.PlayerRobbery, target, 0, nonce);
     }
 
     function commitATMHit(uint8 atmIndex, bytes32 commitment)
@@ -682,21 +692,16 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint256 rewardAmount = oracle.quoteGangsterForUsd(config.rewardUsdE18);
         if (players[msg.sender].unclaimed < lossAmount) revert InsufficientUnclaimed();
         uint256 reservedFromAtmPool = _reserveAtmReward(atmIndex, rewardAmount);
-        uint64 nonce = ++actionNonces[msg.sender];
-        requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
-        pendingActions[msg.sender] = PendingAction({
-            kind: ActionKind.ATMHit,
-            target: address(0),
-            commitment: commitment,
-            commitBlock: uint64(block.number),
-            nonce: nonce,
-            atmIndex: atmIndex,
-            forfeiture: lossAmount,
-            reservedReward: rewardAmount,
-            reservedAtmPool: reservedFromAtmPool
-        });
+        requestId = _storePendingAction(
+            ActionKind.ATMHit,
+            address(0),
+            commitment,
+            atmIndex,
+            lossAmount,
+            rewardAmount,
+            reservedFromAtmPool
+        );
         atmAvailableAt[msg.sender][atmIndex] = block.timestamp + ACTION_COOLDOWN;
-        emit ActionCommitted(requestId, msg.sender, ActionKind.ATMHit, address(0), atmIndex, nonce);
     }
 
     function commitSnitch(bytes32 commitment, uint256 maxGangsterAmount)
@@ -719,20 +724,8 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         delete snitchTarget[msg.sender];
         delete snitchAvailableUntil[msg.sender];
 
-        uint64 nonce = ++actionNonces[msg.sender];
-        requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
-        pendingActions[msg.sender] = PendingAction({
-            kind: ActionKind.Snitch,
-            target: target,
-            commitment: commitment,
-            commitBlock: uint64(block.number),
-            nonce: nonce,
-            atmIndex: 0,
-            forfeiture: cost,
-            reservedReward: 0,
-            reservedAtmPool: 0
-        });
-        emit ActionCommitted(requestId, msg.sender, ActionKind.Snitch, target, 0, nonce);
+        requestId =
+            _storePendingAction(ActionKind.Snitch, target, commitment, 0, cost, 0, 0);
     }
 
     function commitJailPurchase(uint8 item, bytes32 commitment, uint256 maxGangsterAmount)
@@ -750,20 +743,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
         _collectGangsterSpend(msg.sender, cost);
 
-        uint64 nonce = ++actionNonces[msg.sender];
-        requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
-        pendingActions[msg.sender] = PendingAction({
-            kind: ActionKind.JailShop,
-            target: address(0),
-            commitment: commitment,
-            commitBlock: uint64(block.number),
-            nonce: nonce,
-            atmIndex: item,
-            forfeiture: cost,
-            reservedReward: 0,
-            reservedAtmPool: 0
-        });
-        emit ActionCommitted(requestId, msg.sender, ActionKind.JailShop, address(0), item, nonce);
+        requestId = _storePendingAction(
+            ActionKind.JailShop, address(0), commitment, item, cost, 0, 0
+        );
     }
 
     function commitPhoneHit(bytes32 commitment)
@@ -780,27 +762,57 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
         jailPhones[msg.sender]--;
 
+        requestId = _storePendingAction(
+            ActionKind.PhoneHit,
+            target,
+            commitment,
+            0,
+            jailLostLoot[msg.sender],
+            jailIncidentAt[msg.sender],
+            0
+        );
+    }
+
+    function _storePendingAction(
+        ActionKind kind,
+        address target,
+        bytes32 commitment,
+        uint8 atmIndex,
+        uint256 forfeiture,
+        uint256 reservedReward,
+        uint256 reservedAtmPool
+    ) internal returns (bytes32 requestId) {
         uint64 nonce = ++actionNonces[msg.sender];
         requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
         pendingActions[msg.sender] = PendingAction({
-            kind: ActionKind.PhoneHit,
+            kind: kind,
             target: target,
             commitment: commitment,
-            commitBlock: uint64(block.number),
+            resolver: randomnessResolver.resolver(),
+            committedAt: uint64(block.timestamp),
+            expiresAt: uint64(block.timestamp + ACTION_TIMEOUT),
             nonce: nonce,
-            atmIndex: 0,
-            forfeiture: jailLostLoot[msg.sender],
-            reservedReward: jailIncidentAt[msg.sender],
-            reservedAtmPool: 0
+            atmIndex: atmIndex,
+            forfeiture: forfeiture,
+            reservedReward: reservedReward,
+            reservedAtmPool: reservedAtmPool
         });
-        emit ActionCommitted(requestId, msg.sender, ActionKind.PhoneHit, target, 0, nonce);
+        emit ActionCommitted(requestId, msg.sender, kind, target, atmIndex, nonce);
     }
 
-    function revealAction(bytes32 secret) external nonReentrant whenNotPaused onlyActiveMember {
+    function revealAction(
+        bytes32 secret,
+        uint256 randomWord,
+        uint64 deadline,
+        bytes calldata resolverSignature
+    ) external nonReentrant whenNotPaused onlyActiveMember {
         PendingAction memory action = pendingActions[msg.sender];
         if (action.kind == ActionKind.None) revert NoPendingAction();
-        if (block.number <= uint256(action.commitBlock) + MIN_REVEAL_BLOCKS - 1) revert RevealTooEarly();
-        if (block.number > uint256(action.commitBlock) + MAX_REVEAL_BLOCKS) revert RevealExpired();
+        if (block.timestamp < uint256(action.committedAt) + MIN_REVEAL_DELAY) revert RevealTooEarly();
+        if (block.timestamp > action.expiresAt) revert RevealExpired();
+        if (deadline < block.timestamp || deadline > action.expiresAt) {
+            revert ResolverDeadlineInvalid();
+        }
 
         bytes32 expected =
             keccak256(abi.encodePacked(msg.sender, action.target, action.atmIndex, secret, action.nonce));
@@ -808,8 +820,15 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
         bytes32 requestId =
             keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, action.nonce));
-        bytes32 entropy =
-            keccak256(abi.encodePacked(secret, blockhash(uint256(action.commitBlock) + 1), requestId));
+        randomWord = randomnessResolver.consume(
+            requestId,
+            action.commitment,
+            randomWord,
+            deadline,
+            action.resolver,
+            resolverSignature
+        );
+        bytes32 entropy = keccak256(abi.encodePacked(secret, randomWord, requestId));
         delete pendingActions[msg.sender];
 
         if (action.kind == ActionKind.PlayerRobbery) {
@@ -828,7 +847,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     function forfeitExpiredAction(address attacker) external nonReentrant {
         PendingAction memory action = pendingActions[attacker];
         if (action.kind == ActionKind.None) revert NoPendingAction();
-        if (block.number <= uint256(action.commitBlock) + MAX_REVEAL_BLOCKS) revert RevealTooEarly();
+        if (block.timestamp <= action.expiresAt) revert RevealTooEarly();
         delete pendingActions[attacker];
 
         _updatePlayer(attacker);
@@ -990,19 +1009,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
     function robberyProfile(uint32 attackerPower, uint32 targetPower)
         public
-        pure
+        view
         returns (uint16 chanceBps, uint16 stealBps, uint16 lossBps)
     {
-        if (targetPower == attackerPower) return (5_000, 1_200, 1_200);
-        if (targetPower > attackerPower) {
-            uint256 ratioBps = (uint256(targetPower) * BPS) / (attackerPower == 0 ? 1 : attackerPower);
-            if (ratioBps <= 15_000) return (2_500, 1_800, 800);
-            if (ratioBps <= 25_000) return (1_800, 1_800, 800);
-            return (1_000, 1_800, 800);
-        }
-        if (targetPower == 0) return (7_000, 400, 2_500);
-        if (targetPower * 4 <= attackerPower) return (6_500, 500, 2_500);
-        return (5_800, 800, 2_000);
+        return gameMath.robberyProfile(attackerPower, targetPower);
     }
 
     function _updateGlobal() internal {
@@ -1021,8 +1031,11 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         Player storage player = players[account];
         if (player.power != 0) {
             uint256 accumulated = (uint256(player.power) * accRewardPerPower) / ACC_REWARD_PRECISION;
-            uint256 newlyEarned =
-                ((accumulated - player.rewardDebt) * earningMultiplierBps(account)) / BPS;
+            uint256 newlyEarned;
+            if (_hasLiveAccess(account)) {
+                newlyEarned =
+                    ((accumulated - player.rewardDebt) * earningMultiplierBps(account)) / BPS;
+            }
             if (newlyEarned != 0) {
                 if (player.unclaimed == 0) {
                     unclaimedSince[account] =
@@ -1034,6 +1047,19 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             player.rewardDebt = accumulated;
         }
         playerRewardUpdatedAt[account] = block.timestamp;
+    }
+
+    function _hasLiveAccess(address account) internal view returns (bool) {
+        if (!players[account].joined) return false;
+        try oracle.quoteGangsterForUsd(ACCESS_HOLD_USD_E18) returns (uint256 requiredBalance) {
+            try GANGSTER.balanceOf(account) returns (uint256 balance) {
+                return balance >= requiredBalance;
+            } catch {
+                return false;
+            }
+        } catch {
+            return false;
+        }
     }
 
     function _syncRewardDebt(Player storage player) internal {

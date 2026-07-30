@@ -1,6 +1,7 @@
-type GangsterType = "rookie" | "captain" | "boss" | "legend";
+type GangsterType = "civilian" | "rookie" | "captain" | "boss" | "legend";
 
 const designs: Record<GangsterType, { skin: string; jacket: string; accent: string; hat: string; label: string }> = {
+  civilian: { skin: "#b98262", jacket: "#334155", accent: "#94a3b8", hat: "#475569", label: "CV" },
   rookie: { skin: "#b57653", jacket: "#1b1c20", accent: "#d7a544", hat: "#111216", label: "R" },
   captain: { skin: "#9a6043", jacket: "#171a1f", accent: "#c8953c", hat: "#0e1014", label: "C" },
   boss: { skin: "#c48864", jacket: "#202126", accent: "#e0b75e", hat: "#252329", label: "B" },
@@ -11,6 +12,7 @@ export function PixelGangster({ type, className = "" }: { type: GangsterType; cl
   const d = designs[type];
   const isBoss = type === "boss";
   const isLegend = type === "legend";
+  const isCivilian = type === "civilian";
   return (
     <svg viewBox="0 0 160 180" role="img" aria-label={`${type} gangster`} className={className} shapeRendering="crispEdges" xmlns="http://www.w3.org/2000/svg">
       <rect x="15" y="8" width="130" height="164" rx="6" fill="#101420" />
@@ -27,6 +29,7 @@ export function PixelGangster({ type, className = "" }: { type: GangsterType; cl
       <path d="M107 103 120 127 133 116 121 88Z" fill={d.jacket} stroke="#080b12" strokeWidth="5" />
       <rect x="30" y="111" width="16" height="18" fill={d.skin} stroke="#080b12" strokeWidth="4" />
       {type === "rookie" && <><path d="M19 102h26v10H19z" fill="#252b36" stroke="#080b12" strokeWidth="4" /><path d="M24 95h17v8H24z" fill="#f4c95d" /></>}
+      {isCivilian && <><rect x="26" y="104" width="20" height="15" rx="3" fill="#64748b" stroke="#080b12" strokeWidth="4" /><path d="M31 109h10M31 114h7" stroke="#e2e8f0" strokeWidth="2" /></>}
       {type === "captain" && <><path d="M115 101h26v10h-26z" fill="#252b36" stroke="#080b12" strokeWidth="4" /><path d="M119 94h17v8h-17z" fill="#bdeef0" /></>}
       {isBoss && <><path d="M117 103h24v10h-24z" fill="#b99249" stroke="#080b12" strokeWidth="4" /><path d="M122 95h12v8h-12z" fill="#efd477" /></>}
       {isLegend && <><path d="M118 101h22v11h-22z" fill="#dc3c58" stroke="#080b12" strokeWidth="4" /><path d="M123 93h12v8h-12z" fill="#fa8d9d" /></>}
@@ -37,7 +40,9 @@ export function PixelGangster({ type, className = "" }: { type: GangsterType; cl
       <path d="M79 77h7" stroke="#a54f40" strokeWidth="3" />
       <path d="M58 78h44v20H58z" fill="#121216" stroke="#080b12" strokeWidth="3" />
       <path d="M63 84h8m4 0h8m4 0h8" stroke={d.accent} strokeWidth="2" opacity=".8" />
-      {isBoss ? <><path d="M40 48h80l-9-14H49l-9 14Z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M54 33h52V18H54z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M55 43h50" stroke={d.accent} strokeWidth="5" /></> : <><path d="M49 48h62V34H49z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M57 35h45V20H57z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M48 48h66" stroke={d.accent} strokeWidth="5" /></>}
+      {isCivilian
+        ? <><path d="M51 47h58V32H51z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M57 33h45V23H57z" fill={d.hat} stroke="#080b12" strokeWidth="5" /></>
+        : isBoss ? <><path d="M40 48h80l-9-14H49l-9 14Z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M54 33h52V18H54z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M55 43h50" stroke={d.accent} strokeWidth="5" /></> : <><path d="M49 48h62V34H49z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M57 35h45V20H57z" fill={d.hat} stroke="#080b12" strokeWidth="5" /><path d="M48 48h66" stroke={d.accent} strokeWidth="5" /></>}
       {type === "captain" && <path d="M68 37h30" stroke="#7ef0ea" strokeWidth="4" />}
       {isLegend && <path d="M56 28h45" stroke="#ed79e9" strokeWidth="4" />}
       <rect x="66" y="140" width="28" height="8" fill={d.accent} stroke="#080b12" strokeWidth="3" />

@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/services/**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -23,11 +24,24 @@
 /.data/
 *.tar.gz
 *.key
+*.pem
+hoodatm-backup*.json
 dev-preview*.log
+
+# Foundry build/deploy artifacts (addresses are on-chain; receipts stay local/private)
+/contracts/out/
+/contracts/cache/
+/contracts/broadcast/
+/services/**/dist
+
+# Local operator secrets / keystores (never commit)
+.hoodatm/
+**/*.pass
+**/randomness-resolver.env
+**/holding-indexer.env
 
 # misc
 .DS_Store
-*.pem
 
 # debug
 npm-debug.log*

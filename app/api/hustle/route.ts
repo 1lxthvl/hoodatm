@@ -23,6 +23,10 @@ const characterPower: Record<GangsterCharacter, number> = {
   OG: 750,
 };
 
+function liveLedgerDisabled() {
+  return process.env.NEXT_PUBLIC_GAME_LIVE === "true";
+}
+
 function farmingProfile(player: TrackedPlayer) {
   if (player.gangsterRoster.length === 0) {
     return { power: 1, weight: 1.5, earningRate: 1 };
@@ -50,25 +54,45 @@ function farmingProfile(player: TrackedPlayer) {
   return { power, weight: power * balanceMultiplier, earningRate: weightedRate };
 }
 
-async function zeroHeatRate(player: TrackedPlayer) {
+type FarmContext = {
+  players: TrackedPlayer[];
+  activePurchasedGangsters: number;
+  dailyBaseFarmPoolUsd: number;
+};
+
+async function farmContext(): Promise<FarmContext> {
+  const players = await listTrackedPlayers();
+  const activePurchasedGangsters = players.reduce(
+    (total, player) => total + player.gangsterRoster.filter(
+      (gangster) => gangster.source === "paid",
+    ).length,
+    0,
+  );
+  return {
+    players,
+    activePurchasedGangsters,
+    dailyBaseFarmPoolUsd: getDailyBaseFarmPoolUsd(activePurchasedGangsters),
+  };
+}
+
+async function zeroHeatRate(player: TrackedPlayer, farm: FarmContext) {
   const response = await getGangsterPrice();
   if (!response.ok) return 0;
   const price = await response.json() as { gangsterUsd?: number };
   if (!price.gangsterUsd || price.gangsterUsd <= 0) return 0;
-  const players = await listTrackedPlayers();
-  const totalWeight = players.reduce(
+  const totalWeight = farm.players.reduce(
     (total, candidate) => total + farmingProfile(candidate).weight,
     0,
   );
   const profile = farmingProfile(player);
   const share = totalWeight > 0 ? profile.weight / totalWeight : 1;
-  const dailyBaseFarmPoolUsd = getDailyBaseFarmPoolUsd(Date.now());
-  return (dailyBaseFarmPoolUsd / price.gangsterUsd / 24) * share * profile.earningRate;
+  return (farm.dailyBaseFarmPoolUsd / price.gangsterUsd / 24) * share * profile.earningRate;
 }
 
 function hustleState(
   player: TrackedPlayer | null,
   atmPoolContributions: [number, number, number, number],
+  farm: FarmContext,
 ) {
   const now = Date.now();
   const unclaimedSince = player?.hustleUnclaimedSince
@@ -93,6 +117,8 @@ function hustleState(
     claimBonusBps: claimTerms.bonusBps,
     claimHeldHours: claimTerms.heldHours,
     atmPoolContributions,
+    activePurchasedGangsters: farm.activePurchasedGangsters,
+    dailyBaseFarmPoolUsd: farm.dailyBaseFarmPoolUsd,
     serverTime: now,
   };
 }
@@ -119,23 +145,36 @@ async function ensurePlayer(wallet: string) {
 }
 
 export async function GET(request: Request) {
+  if (liveLedgerDisabled()) {
+    return Response.json(
+      { error: "Live balances are read from ATMGame; the off-chain hustle ledger is disabled." },
+      { status: 410, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
   const wallet = new URL(request.url).searchParams.get("wallet") || "";
   if (!isAddress(wallet)) {
     return Response.json({ error: "Valid wallet required." }, { status: 400 });
   }
   const player = await findPlayerByWallet(wallet);
+  const farm = await farmContext();
   if (!player) {
-    return Response.json(hustleState(null, await getHustleAtmPoolTotals()), {
+    return Response.json(hustleState(null, await getHustleAtmPoolTotals(), farm), {
       headers: { "Cache-Control": "private, no-store" },
     });
   }
-  const settled = await updatePlayerHustle(wallet, "sync", await zeroHeatRate(player));
-  return Response.json(hustleState(settled, await getHustleAtmPoolTotals()), {
+  const settled = await updatePlayerHustle(wallet, "sync", await zeroHeatRate(player, farm));
+  return Response.json(hustleState(settled, await getHustleAtmPoolTotals(), farm), {
     headers: { "Cache-Control": "private, no-store" },
   });
 }
 
 export async function POST(request: Request) {
+  if (liveLedgerDisabled()) {
+    return Response.json(
+      { error: "Live balances are changed only by ATMGame transactions." },
+      { status: 409 },
+    );
+  }
   const body = await request.json() as {
     wallet?: string;
     action?: "start" | "pause" | "sync" | "claim";
@@ -153,16 +192,17 @@ export async function POST(request: Request) {
   }
 
   const ensured = await ensurePlayer(body.wallet);
+  const farm = await farmContext();
   if (body.action === "claim") {
     try {
       await updatePlayerHustle(
         body.wallet,
         "sync",
-        await zeroHeatRate(ensured),
+        await zeroHeatRate(ensured, farm),
       );
       const result = await claimPlayerHustleEarnings(body.wallet);
       return Response.json({
-        ...hustleState(result?.player ?? null, await getHustleAtmPoolTotals()),
+        ...hustleState(result?.player ?? null, await getHustleAtmPoolTotals(), farm),
         claim: result?.claim,
       });
     } catch (error) {
@@ -175,7 +215,7 @@ export async function POST(request: Request) {
   const player = await updatePlayerHustle(
     body.wallet,
     body.action,
-    body.action === "start" ? 0 : await zeroHeatRate(ensured),
+    body.action === "start" ? 0 : await zeroHeatRate(ensured, farm),
   );
-  return Response.json(hustleState(player, await getHustleAtmPoolTotals()));
+  return Response.json(hustleState(player, await getHustleAtmPoolTotals(), farm));
 }

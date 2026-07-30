@@ -1,0 +1,33 @@
+[Unit]
+Description=HoodATM randomness resolver signer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=randomness-resolver
+Group=randomness-resolver
+WorkingDirectory=/opt/randomness-resolver
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+EnvironmentFile=/etc/randomness-resolver/randomness-resolver.env
+ExecStart=/usr/bin/node /opt/randomness-resolver/dist/src/main.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -4,7 +4,8 @@ out = "out"
 libs = ["lib", "../node_modules"]
 solc_version = "0.8.30"
 optimizer = true
-optimizer_runs = 1
+optimizer_runs = 0
 via_ir = true
+bytecode_hash = "none"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

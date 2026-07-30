@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // CommonJS bootstrap generated for the standalone systemd runtime.
+    "server.js",
   ]),
 ]);
 

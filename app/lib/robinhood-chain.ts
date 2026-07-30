@@ -33,6 +33,42 @@ export const hoodAtmChain =
 export const hoodAtmGameAbi = [
   {
     type: "function",
+    name: "players",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [
+      { name: "joined", type: "bool" },
+      { name: "tier", type: "uint8" },
+      { name: "power", type: "uint32" },
+      { name: "directReferrals", type: "uint32" },
+      { name: "unclaimed", type: "uint256" },
+      { name: "rewardDebt", type: "uint256" },
+      { name: "lifetimeEarned", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "pendingRewards",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "claimedBalance",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "actionNonces",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint64" }],
+  },
+  {
+    type: "function",
     name: "claim",
     stateMutability: "nonpayable",
     inputs: [],
@@ -102,6 +138,20 @@ export const hoodAtmGameAbi = [
   {
     type: "function",
     name: "spendingFarmPoolContributed",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "activePurchasedGangsters",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "dailyBaseFarmUsd",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
@@ -217,7 +267,12 @@ export const hoodAtmGameAbi = [
     type: "function",
     name: "revealAction",
     stateMutability: "nonpayable",
-    inputs: [{ name: "secret", type: "bytes32" }],
+    inputs: [
+      { name: "secret", type: "bytes32" },
+      { name: "randomWord", type: "uint256" },
+      { name: "deadline", type: "uint64" },
+      { name: "resolverSignature", type: "bytes" },
+    ],
     outputs: [],
   },
   {
@@ -318,7 +373,12 @@ export const hoodAtmGangAbi = [
     type: "function",
     name: "revealJailbreak",
     stateMutability: "nonpayable",
-    inputs: [{ name: "secret", type: "bytes32" }],
+    inputs: [
+      { name: "secret", type: "bytes32" },
+      { name: "randomWord", type: "uint256" },
+      { name: "deadline", type: "uint64" },
+      { name: "resolverSignature", type: "bytes" },
+    ],
     outputs: [],
   },
 ] as const;

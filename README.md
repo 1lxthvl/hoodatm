@@ -37,7 +37,8 @@ npm run build
 
 ## Environment and private data
 
-Only `.env.example` belongs in source control. Keep actual values in `.env.local` or in the production server’s protected environment.
+Only `.env.example` belongs in source control. Keep actual values in `.env.local`
+or in the GCP VM's root-owned `/etc/hoodatm.env`.
 
 The following must never be committed:
 
@@ -45,12 +46,27 @@ The following must never be committed:
 - WalletConnect project credentials
 - private keys, seed phrases, deployment keys, or operator credentials
 - player wallets linked to usernames, IP addresses, access codes, and OAuth tokens
+- `hoodatm-backup-*.json` downloads and other registry dumps
 - server backups, release archives, logs, and machine-specific or secret-bearing production configuration
 
-Production registries are stored outside the application directory under `/var/lib/hoodatm` and are not part of this repository.
+Production registries live under `/var/lib/hoodatm`. Release extraction is limited
+to `/opt/hoodatm` and must never replace `players.json`, `access-codes.json`, or
+`x-tokens.json`. Download a local backup from `/admin` (**Download local backup**)
+regularly and store it encrypted offline.
 
-For a complete new-computer setup and the sanitized Nginx/systemd files, see
-[RESTORE.md](RESTORE.md).
+The production GCP VM uses Nginx/systemd under `ops/`. See
+[ops/MAINNET_LAUNCH.md](ops/MAINNET_LAUNCH.md) for the paused deployment gates.
+
+## Production deploys (GCP VM)
+
+1. Build and test locally with `NEXT_PUBLIC_GAME_LIVE=false`.
+2. Upload the standalone release archive to `/tmp/hoodatm-deploy.tar`.
+3. Run `sudo ops/scripts/deploy-extract.sh`; it preserves `/var/lib/hoodatm`.
+4. Keep contracts paused and `NEXT_PUBLIC_GAME_LIVE=false` until every gate in
+   [ops/MAINNET_LAUNCH.md](ops/MAINNET_LAUNCH.md) passes.
+
+`NEXT_PUBLIC_*` values are embedded at build time, so rebuild after changing
+contract addresses or the live flag.
 
 ## Smart contracts
 

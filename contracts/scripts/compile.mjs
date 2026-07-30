@@ -6,9 +6,13 @@ const workspace = process.cwd();
 const sourceFiles = [
   "contracts/src/GangsterPriceOracle.sol",
   "contracts/src/GangsterHoldingOracle.sol",
+  "contracts/src/RandomnessResolver.sol",
+  "contracts/src/ATMGameMath.sol",
   "contracts/src/ATMGame.sol",
   "contracts/src/GangSystem.sol",
   "contracts/src/IHoodATMGameActions.sol",
+  "contracts/script/DeployHoodATMInfrastructure.s.sol",
+  "contracts/script/DeployHoodATM.s.sol",
   "contracts/test/ATMGame.t.sol",
 ];
 
@@ -40,7 +44,8 @@ const output = JSON.parse(solc.compile(JSON.stringify({
   language: "Solidity",
   sources,
   settings: {
-    optimizer: { enabled: true, runs: 1 },
+    optimizer: { enabled: true, runs: 0 },
+    metadata: { bytecodeHash: "none" },
     viaIR: true,
     outputSelection: { "*": { "*": ["abi", "evm.bytecode.object", "evm.deployedBytecode.object"] } },
   },
@@ -59,6 +64,8 @@ for (const [sourceName, contractName] of [
   ["contracts/src/GangSystem.sol", "GangSystem"],
   ["contracts/src/GangsterPriceOracle.sol", "GangsterPriceOracle"],
   ["contracts/src/GangsterHoldingOracle.sol", "GangsterHoldingOracle"],
+  ["contracts/src/RandomnessResolver.sol", "RandomnessResolver"],
+  ["contracts/src/ATMGameMath.sol", "ATMGameMath"],
 ]) {
   const bytecode = output.contracts[sourceName][contractName].evm.deployedBytecode.object;
   const size = bytecode.length / 2;

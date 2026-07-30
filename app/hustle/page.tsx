@@ -50,6 +50,7 @@ export default function HustlePage() {
     withdrawalAvailableAt,
     dailyFarmPoolUsd,
     dailyBaseFarmPoolUsd,
+    activePurchasedGangsters,
     spendingFarmPoolUsd,
     effectivePowerShare,
     idleRewardPerHour,
@@ -85,7 +86,9 @@ export default function HustlePage() {
       ? "boss"
       : currentPlayer.rank === "OG"
         ? "legend"
-        : "rookie";
+        : currentPlayer.rank === "Civilian"
+          ? "civilian"
+          : "rookie";
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -237,7 +240,7 @@ export default function HustlePage() {
             icon: CircleDollarSign,
             label: "Farm-pool share",
             value: `${(effectivePowerShare * 100).toFixed(2)}%`,
-            subvalue: `$${dailyFarmPoolUsd.toFixed(2)}/day · $${dailyBaseFarmPoolUsd.toFixed(2)} base + $${spendingFarmPoolUsd.toFixed(2)} recycled`,
+            subvalue: `$${dailyFarmPoolUsd.toFixed(2)}/day · $${dailyBaseFarmPoolUsd.toFixed(2)} base (${activePurchasedGangsters}/10 purchased) + $${spendingFarmPoolUsd.toFixed(2)} recycled`,
             color: "text-amber-200",
           },
           { icon: Coins, label: "Earning rate per hour", value: `${formatGangster(idleRewardPerHour)}/hr`, subvalue: `${usdValue(idleRewardPerHour, price?.gangsterUsd)}/hr`, color: "text-lime-300" },
@@ -321,7 +324,7 @@ export default function HustlePage() {
         </div>
       </section>
 
-      <p className="text-center text-sm text-slate-500">The daily base farm is deterministically set between $5 and $10. It grows whenever $GANGSTER is spent because 25% of every gameplay payment is recycled into earnings, then the total dilutes across active network power.</p>
+      <p className="text-center text-sm text-slate-500">The daily base farm starts at $2.50 and gains 10% of that base for each active purchased gangster. Code-granted characters do not count. The base caps at $5 with 10 active purchased gangsters, then grows further whenever 25% of $GANGSTER gameplay spending is recycled into earnings.</p>
     </div>
   );
 }

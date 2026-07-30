@@ -27,9 +27,16 @@ interface IHoodATMGameActions {
     function commitSnitch(bytes32 commitment, uint256 maxGangsterAmount) external returns (bytes32);
     function commitJailPurchase(uint8 item, bytes32 commitment, uint256 maxGangsterAmount) external returns (bytes32);
     function commitPhoneHit(bytes32 commitment) external returns (bytes32);
-    function revealAction(bytes32 secret) external;
+    function revealAction(
+        bytes32 secret,
+        uint256 randomWord,
+        uint64 deadline,
+        bytes calldata resolverSignature
+    ) external;
     function layLow() external;
     function setGangSystem(address gangSystem) external;
+    function checkpointRewards(address account) external;
     function markCodeGrantedGangster(address account) external;
+    function setActivePurchasedGangsters(uint256 count) external;
     function releaseFromJail(address inmate) external;
 }

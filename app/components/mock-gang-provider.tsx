@@ -1,17 +1,23 @@
 "use client";
 
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { waitForTransactionReceipt } from "@wagmi/core";
+import { readContract, readContracts, waitForTransactionReceipt } from "@wagmi/core";
 import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
-import { Address, isAddress } from "viem";
+import { Address, encodePacked, formatUnits, Hex, isAddress, keccak256, toHex, zeroAddress } from "viem";
 import { wagmiConfig } from "../lib/wagmi-config";
 import { hoodAtmChain, hoodAtmGameAbi } from "../lib/robinhood-chain";
 import { getClaimTerms, type ClaimTerms } from "../lib/claim-economy";
 import {
+  DAILY_BASE_FARM_MIN_USD,
   GANGSTER_SPEND_FARM_SHARE,
-  getDailyBaseFarmPoolUsd,
 } from "../lib/daily-farm-economy";
 import { useGangsterPrice } from "./gangster-price-provider";
+import {
+  readPendingResolverActions,
+  removePendingResolverAction,
+  savePendingResolverAction,
+  type PendingResolverAction,
+} from "../lib/pending-resolver-actions";
 
 export type GangMember = {
   id: string;
@@ -122,6 +128,7 @@ type MockGangContextValue = {
   withdrawalAvailableAt: number;
   dailyFarmPoolUsd: number;
   dailyBaseFarmPoolUsd: number;
+  activePurchasedGangsters: number;
   spendingFarmPoolUsd: number;
   effectivePowerShare: number;
   idleRewardPerHour: number;
@@ -270,6 +277,8 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     [number, number, number, number]
   >([0, 0, 0, 0]);
   const [spendingFarmPoolTokens, setSpendingFarmPoolTokens] = useState(0);
+  const [dailyBaseFarmPoolUsd, setDailyBaseFarmPoolUsd] = useState(DAILY_BASE_FARM_MIN_USD);
+  const [activePurchasedGangsters, setActivePurchasedGangsters] = useState(0);
   const [jailedUntil, setJailedUntil] = useState<Record<string, number>>({});
   const [claimLockedUntil, setClaimLockedUntil] = useState<Record<string, number>>({});
   const [snitchOpportunity, setSnitchOpportunity] = useState<MockGangContextValue["snitchOpportunity"]>(null);
@@ -284,6 +293,13 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const [gangsterSlots, setGangsterSlots] = useState(1);
   const [activeGangsters, setActiveGangsters] = useState<ActiveGangster[]>([]);
   const [withdrawalEligible, setWithdrawalEligible] = useState(true);
+  const [liveAverageHeld24h, setLiveAverageHeld24h] = useState(0);
+  const [liveWithdrawalGrossLimit, setLiveWithdrawalGrossLimit] = useState(0);
+  const [liveClaimTerms, setLiveClaimTerms] = useState<ClaimTerms>({
+    feeBps: 0,
+    bonusBps: 0,
+    heldHours: 0,
+  });
   const [slotUnlockError, setSlotUnlockError] = useState<string | null>(null);
   const [qualifiedReferrals, setQualifiedReferrals] = useState(MOCK_QUALIFIED_REFERRALS);
   const [currentTime, setCurrentTime] = useState(0);
@@ -304,7 +320,6 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     ? 0
     : Math.max(0, 1 - Math.floor(heatLevel / 3) / 100);
   const layingLowUntil = isHustling ? 0 : Number.MAX_SAFE_INTEGER;
-  const dailyBaseFarmPoolUsd = getDailyBaseFarmPoolUsd(currentTime);
   const spendingFarmPoolUsd = price
     ? spendingFarmPoolTokens * price.gangsterUsd
     : 0;
@@ -315,11 +330,13 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const idleRewardPerHour =
     (dailyFarmTokens / 24) * effectivePowerShare * heatMultiplier * (characterEarningRate / 100);
   const robberyBonusRate = Math.min(qualifiedReferrals, 10) * 0.025;
-  const averageHeld24h = MOCK_AVERAGE_HELD_24H;
+  const averageHeld24h = gameLive ? liveAverageHeld24h : MOCK_AVERAGE_HELD_24H;
   const withdrawalRestriction = withdrawalEligible
     ? null
     : "A code-granted gangster can earn and claim, but a paid gangster is required before withdrawing.";
-  const withdrawalGrossLimit = !withdrawalEligible || currentPlayer.claimed < 1
+  const withdrawalGrossLimit = gameLive
+    ? liveWithdrawalGrossLimit
+    : !withdrawalEligible || currentPlayer.claimed < 1
     ? 0
     : Math.min(currentPlayer.claimed * 0.5, averageHeld24h * 0.5);
   const gangCreationCostTokens = price ? GANG_CREATION_COST_USD / price.gangsterUsd : 0;
@@ -331,10 +348,9 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     ? nextGangsterSlotCostUsd / price.gangsterUsd
     : 0;
   const crewActive = gangsterSlots >= 3;
-  const claimTerms = getClaimTerms(
-    unclaimedSince > 0 ? unclaimedSince : null,
-    currentTime,
-  );
+  const claimTerms = gameLive
+    ? liveClaimTerms
+    : getClaimTerms(unclaimedSince > 0 ? unclaimedSince : null, currentTime);
 
   function routeGangsterSpendToFarmPool(amount: number) {
     if (amount <= 0) return;
@@ -351,6 +367,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       setCurrentTime(now);
       const elapsed = Math.max(0, now - lastAccruedAt);
       lastAccruedAt = now;
+      if (gameLive) return;
       const accrued = idleRewardPerHour * (elapsed / ONE_HOUR);
 
       if (accrued <= 0) return;
@@ -367,7 +384,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     }, 1_000);
 
     return () => window.clearInterval(interval);
-  }, [idleRewardPerHour]);
+  }, [gameLive, idleRewardPerHour]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -390,7 +407,55 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         setClaimAvailableAt(0);
         setUnclaimedSince(0);
         setAtmPoolContributions([0, 0, 0, 0]);
+        setDailyBaseFarmPoolUsd(DAILY_BASE_FARM_MIN_USD);
+        setActivePurchasedGangsters(0);
         return;
+      }
+      if (gameLive && gameAddress) {
+        try {
+          const contract = { address: gameAddress, abi: hoodAtmGameAbi, chainId: hoodAtmChain.id } as const;
+          const [player, pending, claimed, withdrawal, claim] = await readContracts(wagmiConfig, {
+            allowFailure: false,
+            contracts: [
+              { ...contract, functionName: "players", args: [address] },
+              { ...contract, functionName: "pendingRewards", args: [address] },
+              { ...contract, functionName: "claimedBalance", args: [address] },
+              { ...contract, functionName: "withdrawalQuote", args: [address] },
+              { ...contract, functionName: "claimQuote", args: [address] },
+            ],
+          });
+          if (!active) return;
+          const [joined, tier, power, , , , lifetimeEarned] = player;
+          const [withdrawLimit, average, nextWithdrawal] = withdrawal;
+          const [, , , , feeBps, bonusBps, nextClaim] = claim;
+          const rankByTier: GangMember["rank"][] = ["Civilian", "Hoodlum", "Captain", "General", "OG"];
+          setPlayers((current) => current.map((candidate) => (
+            candidate.id === CURRENT_PLAYER_ID
+              ? {
+                  ...candidate,
+                  rank: rankByTier[Number(tier)] ?? "Civilian",
+                  power: Number(power),
+                  earned: Number(formatUnits(lifetimeEarned, 18)),
+                  unclaimed: Number(formatUnits(pending, 18)),
+                  claimed: Number(formatUnits(claimed, 18)),
+                }
+              : candidate
+          )));
+          setLiveAverageHeld24h(Number(formatUnits(average, 18)));
+          setLiveWithdrawalGrossLimit(Number(formatUnits(withdrawLimit, 18)));
+          setWithdrawalAvailableAt(Number(nextWithdrawal) * 1000);
+          setClaimAvailableAt(Number(nextClaim) * 1000);
+          setIsHustling(Boolean(joined));
+          setLiveClaimTerms({
+            feeBps: Number(feeBps),
+            bonusBps: Number(bonusBps),
+            heldHours: 0,
+          });
+          return;
+        } catch {
+          setTransactionError("Live contract state is temporarily unavailable; no off-chain balance was used.");
+          return;
+        }
       }
       try {
         const response = await fetch(`/api/hustle?wallet=${encodeURIComponent(address)}`, {
@@ -408,6 +473,8 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           unclaimedSince: number | null;
           nextClaimAt: number;
           atmPoolContributions: [number, number, number, number];
+          activePurchasedGangsters: number;
+          dailyBaseFarmPoolUsd: number;
         };
         if (!active) return;
         setIsHustling(result.hustling);
@@ -417,6 +484,11 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         setClaimAvailableAt(Math.max(0, result.nextClaimAt));
         setUnclaimedSince(Math.max(0, result.unclaimedSince ?? 0));
         setAtmPoolContributions(result.atmPoolContributions ?? [0, 0, 0, 0]);
+        setActivePurchasedGangsters(Math.max(0, result.activePurchasedGangsters ?? 0));
+        setDailyBaseFarmPoolUsd(Math.max(
+          DAILY_BASE_FARM_MIN_USD,
+          result.dailyBaseFarmPoolUsd ?? DAILY_BASE_FARM_MIN_USD,
+        ));
         setPlayers((current) => current.map((player) => (
           player.id === CURRENT_PLAYER_ID
             ? {
@@ -435,7 +507,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [address]);
+  }, [address, gameAddress, gameLive]);
 
   useEffect(() => {
     async function loadCharacterGrant() {
@@ -648,6 +720,83 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function settleResolverAction(action: PendingResolverAction) {
+    if (!gameAddress || action.contract.toLowerCase() !== gameAddress.toLowerCase()) return false;
+    const response = await fetch("/api/resolver/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: action.requestId,
+        account: action.account,
+        contract: action.contract,
+        commitment: action.commitment,
+      }),
+    });
+    if (response.status === 202) return false;
+    const resolution = await response.json() as {
+      randomWord?: string;
+      deadline?: string;
+      signature?: Hex;
+      error?: string;
+    };
+    if (!response.ok || !resolution.randomWord || !resolution.deadline || !resolution.signature) {
+      throw new Error(resolution.error || "Resolver response was invalid.");
+    }
+    if (chainId !== hoodAtmChain.id) await switchChainAsync({ chainId: hoodAtmChain.id });
+    const hash = await writeContractAsync({
+      address: gameAddress,
+      abi: hoodAtmGameAbi,
+      functionName: "revealAction",
+      args: [
+        action.secret,
+        BigInt(resolution.randomWord),
+        BigInt(resolution.deadline),
+        resolution.signature,
+      ],
+      chainId: hoodAtmChain.id,
+    });
+    await waitForTransactionReceipt(wagmiConfig, {
+      chainId: hoodAtmChain.id,
+      hash,
+      confirmations: 1,
+    });
+    removePendingResolverAction(action.requestId);
+    return true;
+  }
+
+  useEffect(() => {
+    if (!gameLive || !address || !gameAddress) return;
+    let cancelled = false;
+    const timers: number[] = [];
+    for (const action of readPendingResolverActions()) {
+      if (
+        action.account.toLowerCase() !== address.toLowerCase()
+        || action.contract.toLowerCase() !== gameAddress.toLowerCase()
+      ) continue;
+      const delay = Math.max(0, action.createdAt + 31_000 - Date.now());
+      timers.push(window.setTimeout(() => {
+        if (cancelled) return;
+        void settleResolverAction(action)
+          .then((settled) => {
+            if (settled && !cancelled) window.location.reload();
+          })
+          .catch((error) => {
+            if (!cancelled) {
+              setTransactionError(
+                error instanceof Error ? error.message.split("\n")[0] : "Resolver settlement failed.",
+              );
+            }
+          });
+      }, delay));
+    }
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  // Resolver actions intentionally resume when wallet/contract identity changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, gameAddress, gameLive]);
+
   async function claimEarnings() {
     if (
       !address
@@ -656,11 +805,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       || claimAvailableAt > Date.now()
       || pendingAction !== null
     ) return;
-    if (
-      gameLive
-      && contractConfigured
-      && !(await submitOnchainBalanceAction("Claim"))
-    ) return;
+    if (gameLive && contractConfigured) {
+      if (await submitOnchainBalanceAction("Claim")) window.location.reload();
+      return;
+    }
     setPendingAction("Claim");
     setTransactionError(null);
     try {
@@ -677,6 +825,8 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         unclaimedSince?: number | null;
         nextClaimAt?: number;
         atmPoolContributions?: [number, number, number, number];
+        activePurchasedGangsters?: number;
+        dailyBaseFarmPoolUsd?: number;
         claim?: ClaimResult;
         error?: string;
       };
@@ -702,6 +852,14 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           (amount, index) => amount + result.claim!.atmPoolAllocations[index],
         ) as [number, number, number, number],
       );
+      setActivePurchasedGangsters(Math.max(
+        0,
+        result.activePurchasedGangsters ?? activePurchasedGangsters,
+      ));
+      setDailyBaseFarmPoolUsd(Math.max(
+        DAILY_BASE_FARM_MIN_USD,
+        result.dailyBaseFarmPoolUsd ?? dailyBaseFarmPoolUsd,
+      ));
       setBurnedTotal((total) => total + result.claim!.burned);
       setLastClaim(result.claim);
       setActivities((current) => [{
@@ -724,11 +882,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     if (
       !withdrawalEligible || currentPlayer.claimed <= 0 || withdrawalAvailableAt > Date.now()
     ) return;
-    if (
-      gameLive
-      && contractConfigured
-      && !(await submitOnchainBalanceAction("Withdraw"))
-    ) return;
+    if (gameLive && contractConfigured) {
+      if (await submitOnchainBalanceAction("Withdraw")) window.location.reload();
+      return;
+    }
 
     setPlayers((current) => current.map((player) => {
       if (player.id !== CURRENT_PLAYER_ID || player.claimed <= 0) return player;
@@ -805,7 +962,71 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     const loss = target.lossUsd / price.gangsterUsd;
     if (currentPlayer.unclaimed < loss) return;
     if (gameLive) {
-      setTransactionError("ATM hits remain locked until the two-transaction commit/reveal interface is enabled.");
+      if (!address || !isConnected || !gameAddress) {
+        setTransactionError("Connect the wallet configured for the live ATMGame contract.");
+        return;
+      }
+      try {
+        setPendingAction("ATM hit");
+        setTransactionError(null);
+        if (chainId !== hoodAtmChain.id) await switchChainAsync({ chainId: hoodAtmChain.id });
+        const currentNonce = await readContract(wagmiConfig, {
+          address: gameAddress,
+          abi: hoodAtmGameAbi,
+          functionName: "actionNonces",
+          args: [address],
+          chainId: hoodAtmChain.id,
+        });
+        const nonce = currentNonce + BigInt(1);
+        const atmIndex = atmTargets.findIndex((atm) => atm.id === targetId);
+        const secret = toHex(crypto.getRandomValues(new Uint8Array(32)));
+        const commitment = keccak256(encodePacked(
+          ["address", "address", "uint8", "bytes32", "uint64"],
+          [address, zeroAddress, atmIndex, secret, nonce],
+        ));
+        const requestId = keccak256(encodePacked(
+          ["uint256", "address", "address", "uint64"],
+          [BigInt(hoodAtmChain.id), gameAddress, address, nonce],
+        ));
+        const hash = await writeContractAsync({
+          address: gameAddress,
+          abi: hoodAtmGameAbi,
+          functionName: "commitATMHit",
+          args: [atmIndex, commitment],
+          chainId: hoodAtmChain.id,
+        });
+        await waitForTransactionReceipt(wagmiConfig, {
+          chainId: hoodAtmChain.id,
+          hash,
+          confirmations: 1,
+        });
+        const pending: PendingResolverAction = {
+          requestId,
+          account: address,
+          contract: gameAddress,
+          commitment,
+          secret,
+          kind: "atm",
+          createdAt: Date.now(),
+        };
+        savePendingResolverAction(pending);
+        setTransactionError("ATM hit committed. Resolver-backed settlement will resume automatically.");
+        window.setTimeout(() => {
+          void settleResolverAction(pending)
+            .then((settled) => {
+              if (settled) window.location.reload();
+            })
+            .catch((error) => {
+              setTransactionError(
+                error instanceof Error ? error.message.split("\n")[0] : "Resolver settlement failed.",
+              );
+            });
+        }, 31_000);
+      } catch (error) {
+        setTransactionError(error instanceof Error ? error.message.split("\n")[0] : "ATM commit failed.");
+      } finally {
+        setPendingAction(null);
+      }
       return;
     }
 
@@ -843,6 +1064,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function addIdleEarnings(amount: number) {
+    if (gameLive) return;
     if (amount <= 0) return;
     setPlayers((current) => current.map((player) => (
       player.id === CURRENT_PLAYER_ID
@@ -857,6 +1079,39 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (hustleStatePending) return;
+    if (gameLive) {
+      if (!gameAddress) {
+        setTransactionError("The live game contract is not configured.");
+        return;
+      }
+      if (action === "start") {
+        setTransactionError("Live reward accrual resumes automatically after the on-chain lay-low period ends.");
+        return;
+      }
+      try {
+        setHustleStatePending(true);
+        setTransactionError(null);
+        if (chainId !== hoodAtmChain.id) await switchChainAsync({ chainId: hoodAtmChain.id });
+        const hash = await writeContractAsync({
+          address: gameAddress,
+          abi: hoodAtmGameAbi,
+          functionName: "layLow",
+          args: [],
+          chainId: hoodAtmChain.id,
+        });
+        await waitForTransactionReceipt(wagmiConfig, {
+          chainId: hoodAtmChain.id,
+          hash,
+          confirmations: 1,
+        });
+        window.location.reload();
+      } catch (error) {
+        setTransactionError(error instanceof Error ? error.message.split("\n")[0] : "Lay-low transaction failed.");
+      } finally {
+        setHustleStatePending(false);
+      }
+      return;
+    }
     setTransactionError(null);
     setHustleStatePending(true);
     try {
@@ -873,6 +1128,8 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         unclaimed?: number;
         claimed?: number;
         heat?: number;
+        activePurchasedGangsters?: number;
+        dailyBaseFarmPoolUsd?: number;
         error?: string;
       };
       if (!response.ok) throw new Error(result.error || "Hustle state update failed.");
@@ -880,6 +1137,14 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       setHustleStartedAt(result.startedAt ? new Date(result.startedAt).getTime() : 0);
       setHustleAccumulatedMs(Math.max(0, result.accumulatedMs ?? 0));
       setHeatLevel(Math.min(100, Math.max(0, result.heat ?? 0)));
+      setActivePurchasedGangsters(Math.max(
+        0,
+        result.activePurchasedGangsters ?? activePurchasedGangsters,
+      ));
+      setDailyBaseFarmPoolUsd(Math.max(
+        DAILY_BASE_FARM_MIN_USD,
+        result.dailyBaseFarmPoolUsd ?? dailyBaseFarmPoolUsd,
+      ));
       setPlayers((current) => current.map((player) => (
         player.id === CURRENT_PLAYER_ID
           ? {
@@ -918,6 +1183,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function snitch() {
+    if (gameLive) {
+      setTransactionError("Live snitch actions require a resolver-backed on-chain commit.");
+      return;
+    }
     if (!snitchOpportunity || !price) return;
     const cost = SNITCH_COST_USD / price.gangsterUsd;
     if (currentPlayer.claimed < cost) return;
@@ -946,6 +1215,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function buyJailPhone() {
+    if (gameLive) {
+      setTransactionError("Live jail purchases require a resolver-backed on-chain commit.");
+      return;
+    }
     if (!price || (jailedUntil[CURRENT_PLAYER_ID] ?? 0) <= Date.now()) return;
     const cost = 2 / price.gangsterUsd;
     const roll = Math.random() * 100;
@@ -990,6 +1263,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function callGangMember() {
+    if (gameLive) {
+      setTransactionError("Live retaliation hits require a resolver-backed on-chain commit.");
+      return;
+    }
     if (!phoneHitOpportunity || jailPhones <= 0) return;
     const elapsedMinutes = Math.floor((Date.now() - phoneHitOpportunity.occurredAt) / 60_000);
     const ratio = Math.max(0, 0.8 * (1 - elapsedMinutes / 60));
@@ -1024,6 +1301,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function createGang(name: string, tag: string) {
+    if (gameLive) {
+      setTransactionError("Live gang creation must be confirmed through the configured GangSystem contract.");
+      return false;
+    }
     const cleanName = name.trim().slice(0, 28);
     const cleanTag = tag.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
     if (gang || cleanName.length < 3 || cleanTag.length < 2) return false;
@@ -1056,6 +1337,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function updateGangRank(playerId: string, rank: GangRank) {
+    if (gameLive) {
+      setTransactionError("Live gang ranks must be changed through GangSystem.");
+      return;
+    }
     if (!gang || gang.ownerId !== CURRENT_PLAYER_ID) return;
     setGang((current) => current ? {
       ...current,
@@ -1066,6 +1351,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }
 
   function attemptGangJailbreak(playerId: string) {
+    if (gameLive) {
+      setTransactionError("Live jailbreaks require a resolver-backed GangSystem commit.");
+      return;
+    }
     if (!gang || !gang.members.some((member) => member.playerId === playerId)) return;
     if ((jailedUntil[playerId] ?? 0) <= Date.now()) return;
     if (gangJailbreakCostTokens <= 0 || currentPlayer.claimed < gangJailbreakCostTokens) return;
@@ -1117,6 +1406,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     withdrawalAvailableAt,
     dailyFarmPoolUsd,
     dailyBaseFarmPoolUsd,
+    activePurchasedGangsters,
     spendingFarmPoolUsd,
     effectivePowerShare,
     idleRewardPerHour,

@@ -28,7 +28,7 @@ const systems = [
   { title: "Hold $GANGSTER", text: "Keep at least $10 worth of $GANGSTER in the connected wallet to keep game access active." },
   { title: "Recruit gangsters", text: "Choose Hoodlum, Captain, General, or OG characters to add power to your account." },
   { title: "Build a Crew", text: "Run multiple active gangsters. Extra slots start at $10, double each time, and three slots make a Crew." },
-  { title: "Hustle", text: "Earn from the $5–$10 daily base plus 25% of recycled $GANGSTER spending according to your active network power share." },
+  { title: "Hustle", text: "The daily farm starts at $2.50, gains 10% of that base per active purchased gangster, and caps at $5 with 10. Code grants do not raise it; recycled $GANGSTER spending is added on top." },
   { title: "Manage heat", text: "Heat rises while hustling and gradually cuts the account's earning power." },
   { title: "Lay low", text: "Pause earnings to cool heat at 1% per minute and stay protected from player robberies." },
   { title: "Hit ATMs", text: "Take power-scaled shots at the Corner Store, Nightclub, Casino Floor, and Downtown Vault ATMs." },

@@ -24,7 +24,7 @@ const quests = [
   {
     title: "Post",
     points: "+150",
-    description: "Share why you are joining hoodATM when the campaign post goes live.",
+    description: "Post the exact campaign message, @RHOODATM mention, and your personalized referral URL. X verifies the post before points are awarded.",
     action: "post",
   },
   {
@@ -58,6 +58,7 @@ export default async function WhitelistPage() {
   const baseScore = xSession
     ? 100
       + (questStatus?.follow.completedAt ? 50 : 0)
+      + (questStatus?.post.completedAt ? 150 : 0)
       + (questStatus?.like.completedAt ? 50 : 0)
       + (questStatus?.retweet.completedAt ? 100 : 0)
     : 0;
@@ -146,6 +147,8 @@ export default async function WhitelistPage() {
               const actionHref = action ? questLinks[action] : undefined;
               const verified = action === "follow"
                 ? Boolean(questStatus?.follow.completedAt)
+                : action === "post"
+                  ? Boolean(questStatus?.post.completedAt)
                 : action === "like"
                   ? Boolean(questStatus?.like.completedAt)
                 : action === "retweet"
@@ -166,13 +169,14 @@ export default async function WhitelistPage() {
                   <p className="mt-1 text-sm leading-6 text-slate-400">{quest.description}</p>
                   {index === 0 ? (
                     <p className="mt-2 text-xs font-bold uppercase tracking-[0.16em] text-amber-200/80">{xSession ? "Completed" : "Required"}</p>
-                  ) : xSession && (action === "follow" || action === "like" || action === "retweet") ? (
+                  ) : xSession && (action === "follow" || action === "post" || action === "like" || action === "retweet") ? (
                     <XQuestVerification
                       quest={action}
                       postUrl={actionHref!}
                       connectedForVerification={questStatus?.connectedForVerification ?? false}
                       completedAt={questStatus?.[action].completedAt ?? null}
                       lastCheckedAt={questStatus?.[action].lastCheckedAt ?? null}
+                      pendingUntil={questStatus?.[action].pendingUntil ?? null}
                     />
                   ) : xSession && actionHref ? (
                     <a href={actionHref} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.16em] text-amber-200 hover:text-amber-100">
@@ -191,7 +195,7 @@ export default async function WhitelistPage() {
           <section className="rounded-[2rem] border border-lime-300/20 bg-lime-300/[0.06] p-6">
             <ShieldCheck className="h-7 w-7 text-lime-300" />
             <h2 className="mt-4 text-2xl font-semibold text-white">Fair by design</h2>
-            <p className="mt-3 text-sm leading-7 text-slate-300">Follow, Like, and Retweet points are awarded only after X confirms each action. An unsuccessful verification can be rechecked after 12 hours.</p>
+            <p className="mt-3 text-sm leading-7 text-slate-300">Follow, Post, Like, and Retweet points are awarded only after X confirms each action. Temporary X API errors remain pending for about 20 minutes; missing actions can be rechecked after 12 hours.</p>
           </section>
           <section className="rounded-[2rem] border border-amber-200/20 bg-slate-950/70 p-6">
             <Sparkles className="h-6 w-6 text-amber-200" />

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Check, RefreshCw } from "lucide-react";
 
-type Quest = "follow" | "like" | "retweet";
+type Quest = "follow" | "post" | "like" | "retweet";
 
 function formatRetry(value: string | null) {
   if (!value) return "";
@@ -19,18 +19,26 @@ export function XQuestVerification({
   connectedForVerification,
   completedAt,
   lastCheckedAt,
+  pendingUntil,
 }: {
   quest: Quest;
   postUrl: string;
   connectedForVerification: boolean;
   completedAt: string | null;
   lastCheckedAt: string | null;
+  pendingUntil?: string | null;
 }) {
-  const questLabel = quest === "follow" ? "Follow" : quest === "like" ? "Like" : "Retweet";
+  const questLabel = quest === "follow"
+    ? "Follow"
+    : quest === "post"
+      ? "Post"
+      : quest === "like"
+        ? "Like"
+        : "Retweet";
   const [verified, setVerified] = useState(Boolean(completedAt));
   const [nextCheckAt, setNextCheckAt] = useState(
-    !completedAt && lastCheckedAt
-      ? new Date(Date.parse(lastCheckedAt) + 12 * 60 * 60 * 1000).toISOString()
+    !completedAt && (pendingUntil || lastCheckedAt)
+      ? pendingUntil ?? new Date(Date.parse(lastCheckedAt!) + 12 * 60 * 60 * 1000).toISOString()
       : null,
   );
   const [status, setStatus] = useState(
@@ -65,6 +73,7 @@ export function XQuestVerification({
       });
       const result = await response.json() as {
         verified?: boolean;
+        pending?: boolean;
         completedAt?: string | null;
         nextCheckAt?: string | null;
         error?: string;
@@ -80,7 +89,10 @@ export function XQuestVerification({
       } else {
         setNextCheckAt(result.nextCheckAt ?? null);
         setStatus(
-          `${questLabel} not found. Complete it on X before the next check.`,
+          result.pending
+            ? (result.error
+              || "X verification is pending after a temporary API error. Retry shortly.")
+            : `${questLabel} not found. Complete it on X before the next check.`,
         );
       }
     } catch (error) {
@@ -107,7 +119,13 @@ export function XQuestVerification({
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.16em] text-amber-200 hover:text-amber-100"
         >
-          {quest === "follow" ? "Follow on X" : quest === "like" ? "Like on X" : "Retweet on X"} <ArrowUpRight className="h-3.5 w-3.5" />
+          {quest === "follow"
+            ? "Follow on X"
+            : quest === "post"
+              ? "Post on X"
+              : quest === "like"
+                ? "Like on X"
+                : "Retweet on X"} <ArrowUpRight className="h-3.5 w-3.5" />
         </a>
         {connectedForVerification ? (
           <button

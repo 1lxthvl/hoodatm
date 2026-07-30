@@ -17,7 +17,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Connect X before verifying quests." }, { status: 401 });
   }
   const body = await request.json() as { quest?: XQuest };
-  if (body.quest !== "follow" && body.quest !== "like" && body.quest !== "retweet") {
+  if (
+    body.quest !== "follow"
+    && body.quest !== "post"
+    && body.quest !== "like"
+    && body.quest !== "retweet"
+  ) {
     return Response.json({ error: "Unsupported quest." }, { status: 400 });
   }
   try {
