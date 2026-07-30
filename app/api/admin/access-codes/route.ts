@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { generateAccessCode, listAccessCodes } from "../../../lib/access-code-registry";
+import { isAdminUsername } from "../../../lib/admin-access";
 import { gangsterCharacters, type GangsterCharacter } from "../../../lib/player-registry";
 import { readXSession } from "../../../lib/x-session";
 
@@ -9,7 +10,8 @@ async function adminUsername() {
     cookieStore.get("hoodatm_x_session")?.value,
     process.env.HOODATM_SESSION_SECRET,
   );
-  return session?.username.toLowerCase() === "rhoodatm" ? session.username.toLowerCase() : null;
+  const username = session?.username.toLowerCase();
+  return isAdminUsername(username) ? username : null;
 }
 
 export async function GET() {

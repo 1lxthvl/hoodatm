@@ -1,5 +1,6 @@
 import { cookies, headers } from "next/headers";
 import { isAddress } from "viem";
+import { isAdminUsername } from "../../../lib/admin-access";
 import { readXSession } from "../../../lib/x-session";
 import {
   listTrackedPlayers,
@@ -23,7 +24,7 @@ async function session() {
 }
 
 async function isAdmin() {
-  return (await session())?.username.toLowerCase() === "rhoodatm";
+  return isAdminUsername((await session())?.username);
 }
 
 export async function GET() {
