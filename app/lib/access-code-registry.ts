@@ -1,6 +1,7 @@
 import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { gangsterCharacters, type GangsterCharacter } from "./player-registry";
 
 export type AccessCodeType = "hood-access" | "character-claim";
@@ -44,9 +45,7 @@ async function readCodesUnsafe(): Promise<AccessCodeRecord[]> {
 }
 
 async function writeCodesUnsafe(codes: AccessCodeRecord[]) {
-  if (!process.env.HOODATM_ACCESS_CODE_LOG_PATH) {
-    await mkdir(".data", { recursive: true });
-  }
+  await mkdir(dirname(accessCodePath), { recursive: true });
   const temporaryPath = `${accessCodePath}.tmp`;
   await writeFile(
     /* turbopackIgnore: true */ temporaryPath,

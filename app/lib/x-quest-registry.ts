@@ -1,5 +1,6 @@
 import "server-only";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export type XQuest = "follow" | "like" | "retweet";
 
@@ -88,9 +89,7 @@ async function readRecordsUnsafe(): Promise<XGrantRecord[]> {
 }
 
 async function writeRecordsUnsafe(records: XGrantRecord[]) {
-  if (!process.env.HOODATM_X_TOKEN_LOG_PATH) {
-    await mkdir(".data", { recursive: true });
-  }
+  await mkdir(dirname(registryPath), { recursive: true });
   const temporaryPath = `${registryPath}.tmp`;
   await writeFile(
     /* turbopackIgnore: true */ temporaryPath,
