@@ -30,5 +30,6 @@ interface IHoodATMGameActions {
     function revealAction(bytes32 secret) external;
     function layLow() external;
     function setGangSystem(address gangSystem) external;
+    function markCodeGrantedGangster(address account) external;
     function releaseFromJail(address inmate) external;
 }

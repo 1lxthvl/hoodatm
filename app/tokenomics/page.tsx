@@ -102,7 +102,7 @@ export default function GangstanomicsPage() {
         <p className="text-sm font-bold uppercase tracking-[0.24em] text-red-200">Claim burn & robbery economy</p>
         <h2 className="mt-3 text-3xl font-semibold text-white">Secure the bag or leave it on the block.</h2>
         <p className="mt-4 max-w-4xl leading-7 text-slate-300">
-          Farming and robbery rewards accumulate as an exposed, unclaimed balance. Claims are limited to once per hour and always burn 10%. An additional ATM-pool fee starts at 20% and falls by 2% for every completed hour the balance stays unclaimed, reaching 0% at 10 hours. From hour 11 through hour 20, the claim instead earns 2% extra per hour up to a 20% bonus. Claim fees are split across the Corner Store, Nightclub, Casino Floor, and Downtown Vault pools using their 1:2:4:18 allocation. A withdrawal remains available every 12 hours and is limited to the smaller of 50% of the protected in-game balance or 50% of the player&apos;s verified average $GANGSTER holding over the previous 24 hours.
+          Farming and robbery rewards accumulate as an exposed, unclaimed balance. Claims are limited to once per hour and always burn 10%. An additional ATM-pool fee starts at 20% and falls by 2% for every completed hour the balance stays unclaimed, reaching 0% at 10 hours. From hour 11 through hour 20, the claim instead earns 2% extra per hour up to a 20% bonus. Claim fees are split across the Corner Store, Nightclub, Casino Floor, and Downtown Vault pools using their 1:2:4:18 allocation. A withdrawal remains available every 12 hours and is limited to the smaller of 50% of the protected in-game balance or 50% of the player&apos;s verified average $GANGSTER holding over the previous 24 hours. Accounts holding only a code-granted gangster must also purchase a gangster before withdrawing.
         </p>
         <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -117,6 +117,9 @@ export default function GangstanomicsPage() {
               <p className="mt-2 text-sm leading-6 text-slate-400">{item.text}</p>
             </div>
           ))}
+        </div>
+        <div className="mt-5 rounded-2xl border border-lime-200/20 bg-lime-300/[0.06] p-5 text-sm leading-7 text-lime-50/80">
+          <span className="font-black text-lime-200">Code-claim withdrawal rule:</span> a code-granted gangster can hustle and claim into the protected in-game balance, but the account cannot withdraw on-chain until it owns at least one paid gangster. Buying any gangster tier fulfills that requirement and permanently grants one additional active gangster slot at no slot fee. The normal 12-hour cooldown and verified 24-hour holding limit still apply.
         </div>
         <div className="mt-5 rounded-2xl border border-amber-200/20 bg-amber-300/[0.06] p-5 text-sm leading-7 text-amber-50/80">
           Powerless and low-power targets are deliberately bad marks: they hold less loot, only expose a small percentage of their balance, and can take 20–25% of the attacker’s unclaimed balance when the robbery fails. The strongest expected-value targets are equal-power rivals or carefully chosen stronger players.

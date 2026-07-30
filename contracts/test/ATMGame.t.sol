@@ -266,6 +266,48 @@ contract ATMGameTest is Test {
         assertEq(token.balanceOf(alice) - walletBefore, gross);
     }
 
+    function testCodeGrantedGangsterNeedsPaidGangsterAndReceivesFreeSlot() public {
+        _join(alice);
+        vm.prank(TREASURY);
+        game.markCodeGrantedGangster(alice);
+        assertTrue(game.codeGrantedGangster(alice));
+        assertEq(game.gangsterSlots(alice), 1);
+
+        token.mint(TREASURY, 24_000_000 ether);
+        vm.startPrank(TREASURY);
+        token.approve(address(game), type(uint256).max);
+        game.fundRewards(oracle.quoteGangsterForUsd(7.5 ether), 1 days);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(alice);
+        game.claim();
+
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        uint256[] memory averages = new uint256[](1);
+        averages[0] = 1_000_000 ether;
+        holdingOracle.submitAverageBalances(
+            accounts, averages, uint64(block.timestamp - 24 hours), uint64(block.timestamp)
+        );
+        (uint256 blockedGross,,) = game.withdrawalQuote(alice);
+        assertEq(blockedGross, 0);
+        vm.expectRevert(ATMGame.PaidGangsterRequired.selector);
+        vm.prank(alice);
+        game.withdraw();
+
+        uint256 quote = game.quoteTierUpgrade(alice, 1);
+        vm.prank(alice);
+        token.approve(address(game), quote);
+        vm.prank(alice);
+        game.upgradeTier(1, quote);
+
+        assertTrue(game.paidGangster(alice));
+        assertTrue(game.codeBonusSlotGranted(alice));
+        assertEq(game.gangsterSlots(alice), 2);
+        (uint256 enabledGross,,) = game.withdrawalQuote(alice);
+        assertGt(enabledGross, 0);
+    }
+
     function testAtmChancesScaleWithPowerAndRespectBaseCaps() public view {
         assertEq(game.atmWinChanceForPower(1, 0), 700_000);
         assertEq(game.atmWinChanceForPower(5, 1), 250_000);

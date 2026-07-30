@@ -15,11 +15,15 @@ export async function GET(request: Request) {
     return Response.json({ error: "Valid wallet required." }, { status: 400 });
   }
   const player = await findPlayerByWallet(wallet);
+  const codeGranted = player?.gangsterRoster.some((gangster) => gangster.source === "code") ?? false;
+  const hasPaidGangster = player?.gangsterRoster.some((gangster) => gangster.source === "paid") ?? false;
   return Response.json({
     character: player?.characterGrant ?? null,
     earningRate: player?.characterEarningRate ?? null,
     roster: player?.gangsterRoster ?? [],
     slots: player?.gangsterSlots ?? 1,
+    withdrawalEligible: !codeGranted || hasPaidGangster,
+    codeBonusSlotGranted: player?.codeBonusSlotGranted ?? false,
   });
 }
 
@@ -56,16 +60,21 @@ export async function POST(request: Request) {
       characterGrant: code.character,
       characterEarningRate: 50,
       characterCode: code.code,
+      characterSource: "code",
     });
     const updatedPlayer = existing
-      ? await addPlayerGangster(player.id, code.character, code.code)
+      ? await addPlayerGangster(player.id, code.character, code.code, "code")
       : player;
+    const codeGranted = updatedPlayer?.gangsterRoster.some((gangster) => gangster.source === "code") ?? true;
+    const hasPaidGangster = updatedPlayer?.gangsterRoster.some((gangster) => gangster.source === "paid") ?? false;
     return Response.json({
       claimed: true,
       character: code.character,
       earningRate: 50,
       roster: updatedPlayer?.gangsterRoster ?? [],
       slots: updatedPlayer?.gangsterSlots ?? 1,
+      withdrawalEligible: !codeGranted || hasPaidGangster,
+      codeBonusSlotGranted: updatedPlayer?.codeBonusSlotGranted ?? false,
     });
   } catch (error) {
     if (error instanceof AccessCodeUnavailable || error instanceof PlayerRegistryConflict) {

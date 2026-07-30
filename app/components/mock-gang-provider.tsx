@@ -28,6 +28,7 @@ export type ActiveGangster = {
   character: Exclude<GangMember["rank"], "Civilian">;
   earningRate: number;
   code: string | null;
+  source: "code" | "paid" | "admin";
 };
 
 export type RobProfile = {
@@ -116,6 +117,8 @@ type MockGangContextValue = {
   transactionError: string | null;
   averageHeld24h: number;
   withdrawalGrossLimit: number;
+  withdrawalEligible: boolean;
+  withdrawalRestriction: string | null;
   withdrawalAvailableAt: number;
   dailyFarmPoolUsd: number;
   dailyBaseFarmPoolUsd: number;
@@ -280,6 +283,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const [characterEarningRate, setCharacterEarningRate] = useState(100);
   const [gangsterSlots, setGangsterSlots] = useState(1);
   const [activeGangsters, setActiveGangsters] = useState<ActiveGangster[]>([]);
+  const [withdrawalEligible, setWithdrawalEligible] = useState(true);
   const [slotUnlockError, setSlotUnlockError] = useState<string | null>(null);
   const [qualifiedReferrals, setQualifiedReferrals] = useState(MOCK_QUALIFIED_REFERRALS);
   const [currentTime, setCurrentTime] = useState(0);
@@ -312,7 +316,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     (dailyFarmTokens / 24) * effectivePowerShare * heatMultiplier * (characterEarningRate / 100);
   const robberyBonusRate = Math.min(qualifiedReferrals, 10) * 0.025;
   const averageHeld24h = MOCK_AVERAGE_HELD_24H;
-  const withdrawalGrossLimit = currentPlayer.claimed < 1
+  const withdrawalRestriction = withdrawalEligible
+    ? null
+    : "A code-granted gangster can earn and claim, but a paid gangster is required before withdrawing.";
+  const withdrawalGrossLimit = !withdrawalEligible || currentPlayer.claimed < 1
     ? 0
     : Math.min(currentPlayer.claimed * 0.5, averageHeld24h * 0.5);
   const gangCreationCostTokens = price ? GANG_CREATION_COST_USD / price.gangsterUsd : 0;
@@ -436,6 +443,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         setCharacterEarningRate(100);
         setGangsterSlots(1);
         setActiveGangsters([]);
+        setWithdrawalEligible(true);
         setPlayers((current) => current.map((player) => (
           player.id === CURRENT_PLAYER_ID
             ? {
@@ -459,6 +467,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           earningRate: number | null;
           roster?: ActiveGangster[];
           slots?: number;
+          withdrawalEligible?: boolean;
         };
         const roster = Array.isArray(result.roster)
           ? result.roster
@@ -467,10 +476,12 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
                 character: result.character,
                 earningRate: result.earningRate ?? 50,
                 code: null,
+                source: "admin" as const,
               }]
             : [];
         setGangsterSlots(Math.max(1, result.slots ?? 1, roster.length));
         setActiveGangsters(roster);
+        setWithdrawalEligible(result.withdrawalEligible ?? true);
         if (roster.length === 0) {
           setCharacterEarningRate(100);
           setPlayers((current) => current.map((player) => (
@@ -711,7 +722,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
 
   async function withdrawBalance() {
     if (
-      currentPlayer.claimed <= 0 || withdrawalAvailableAt > Date.now()
+      !withdrawalEligible || currentPlayer.claimed <= 0 || withdrawalAvailableAt > Date.now()
     ) return;
     if (
       gameLive
@@ -1101,6 +1112,8 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     transactionError,
     averageHeld24h,
     withdrawalGrossLimit,
+    withdrawalEligible,
+    withdrawalRestriction,
     withdrawalAvailableAt,
     dailyFarmPoolUsd,
     dailyBaseFarmPoolUsd,

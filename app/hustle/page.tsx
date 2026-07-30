@@ -45,6 +45,8 @@ export default function HustlePage() {
     pendingAction,
     averageHeld24h,
     withdrawalGrossLimit,
+    withdrawalEligible,
+    withdrawalRestriction,
     withdrawalAvailableAt,
     dailyFarmPoolUsd,
     dailyBaseFarmPoolUsd,
@@ -131,11 +133,13 @@ export default function HustlePage() {
               <button
                 type="button"
                 onClick={() => void withdrawBalance()}
-                disabled={withdrawalGrossLimit <= 0 || withdrawalLocked || pendingAction !== null}
+                disabled={!withdrawalEligible || withdrawalGrossLimit <= 0 || withdrawalLocked || pendingAction !== null}
                 className="inline-flex items-center gap-2 rounded-full border border-lime-300/30 bg-lime-300/10 px-6 py-3 font-bold text-lime-100 transition hover:bg-lime-300/15 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <WalletCards className="h-4 w-4" /> {pendingAction === "Withdraw"
                   ? "Confirming withdrawal…"
+                  : !withdrawalEligible
+                    ? "Paid gangster required"
                   : withdrawalLocked
                     ? `Withdraw in ${cooldownLabel(withdrawalCooldown)}`
                     : withdrawalGrossLimit <= 0
@@ -155,7 +159,7 @@ export default function HustlePage() {
               </button>
             </div>
             <div className="mt-4 max-w-2xl rounded-2xl border border-white/10 bg-black/30 p-4 text-sm leading-6 text-slate-300">
-              Claims are limited to once per hour and always burn 10%. The ATM-pool fee starts at 20%, falls by 2% per completed unclaimed hour, and reaches 0% at 10 hours. After 10 hours, the wait bonus rises by 2% per hour to a 20% cap at 20 hours. Withdrawals remain available every 12 hours and move the smaller of 50% of your claimed balance or 50% of your verified 24-hour average connected-wallet holding ({formatGangster(averageHeld24h)} $GANGSTER).
+              Claims are limited to once per hour and always burn 10%. The ATM-pool fee starts at 20%, falls by 2% per completed unclaimed hour, and reaches 0% at 10 hours. After 10 hours, the wait bonus rises by 2% per hour to a 20% cap at 20 hours. Withdrawals remain available every 12 hours and move the smaller of 50% of your claimed balance or 50% of your verified 24-hour average connected-wallet holding ({formatGangster(averageHeld24h)} $GANGSTER). {withdrawalRestriction}
             </div>
             <div className="mt-3 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-xl border border-red-300/20 bg-red-400/[0.07] p-3">
