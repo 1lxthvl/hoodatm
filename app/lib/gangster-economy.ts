@@ -4,10 +4,18 @@ export const ROBINHOOD_WETH_ADDRESS = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD7
 export const CHAINLINK_ETH_USD_ADDRESS = "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9" as const;
 export const HOODATM_TREASURY_ADDRESS = "0x7657d90609046F47215Fc0Fb2BF012c88FF9f700" as const;
 
+export const GANGSTER_TOKEN_SYMBOL = "GANGSTER" as const;
+export const GANGSTER_TOKEN_DECIMALS = 18;
+export const GANGSTER_TOKEN_IMAGE_PATH = "/assets/hoodatm-game-logo.svg" as const;
+
+/** Official pons.family swap / launchpad page for $GANGSTER. */
+export const GANGSTER_PONS_SWAP_URL =
+  `https://www.ponsfamily.com/launchpad/${GANGSTER_TOKEN_ADDRESS.toLowerCase()}` as const;
+
 export const TWAP_WINDOW_SECONDS = 30 * 60;
 
 export const GANGSTER_USD_COSTS = {
-  accessHold: 10,
+  accessHold: 5,
   tiers: [2.5, 12.5, 50, 250],
   atmRewards: [0.004, 0.01, 0.025, 0.075],
   atmLosses: [0.001, 0.003, 0.007, 0.02],

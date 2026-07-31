@@ -13,6 +13,10 @@ import {
 } from "../lib/daily-farm-economy";
 import { useGangsterPrice } from "./gangster-price-provider";
 import {
+  resolveEarnStartedAt,
+  clearEarnStartedAt,
+} from "../lib/earn-clock";
+import {
   readPendingResolverActions,
   removePendingResolverAction,
   savePendingResolverAction,
@@ -135,12 +139,14 @@ type MockGangContextValue = {
   heatLevel: number;
   heatMultiplier: number;
   isHustling: boolean;
+  liveHustleReady: boolean;
   hustleStartedAt: number;
   hustleAccumulatedMs: number;
   hustleStatePending: boolean;
   claimAvailableAt: number;
   claimTerms: ClaimTerms;
   atmPoolContributions: [number, number, number, number];
+  hasJoinedGame: boolean;
   layingLowUntil: number;
   jailedUntil: Record<string, number>;
   claimLockedUntil: Record<string, number>;
@@ -196,6 +202,31 @@ const characterPower: Record<Exclude<GangMember["rank"], "Civilian">, number> = 
   General: 135,
   OG: 750,
 };
+
+const rankPowerValue: Record<GangMember["rank"], number> = {
+  Civilian: 1,
+  Hoodlum: 5,
+  Captain: 30,
+  General: 135,
+  OG: 750,
+};
+
+function rosterSummary(roster: ActiveGangster[]) {
+  if (roster.length === 0) {
+    return { power: 0, rank: null as Exclude<GangMember["rank"], "Civilian"> | null, earningRate: 100 };
+  }
+  const power = roster.reduce((total, gangster) => total + characterPower[gangster.character], 0);
+  const earningRate = power
+    ? roster.reduce(
+        (total, gangster) => total + characterPower[gangster.character] * gangster.earningRate,
+        0,
+      ) / power
+    : 100;
+  const primary = [...roster].sort(
+    (left, right) => characterPower[right.character] - characterPower[left.character],
+  )[0];
+  return { power, rank: primary.character, earningRate };
+}
 
 export const atmTargets: AtmTarget[] = [
   { id: "corner-atm", name: "Corner Store ATM", tier: "low", chance: 70, rewardUsd: 0.004, lossUsd: 0.001 },
@@ -268,6 +299,9 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const [withdrawalAvailableAt, setWithdrawalAvailableAt] = useState(0);
   const [heatLevel, setHeatLevel] = useState(0);
   const [isHustling, setIsHustling] = useState(false);
+  const [liveHustleReady, setLiveHustleReady] = useState(false);
+  const [onChainLayLowUntil, setOnChainLayLowUntil] = useState(0);
+  const [hasJoinedGame, setHasJoinedGame] = useState(false);
   const [hustleStartedAt, setHustleStartedAt] = useState(0);
   const [hustleAccumulatedMs, setHustleAccumulatedMs] = useState(0);
   const [hustleStatePending, setHustleStatePending] = useState(false);
@@ -313,13 +347,34 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   const gameAddress = contractConfigured ? configuredAddress as Address : null;
   const gameLive = process.env.NEXT_PUBLIC_GAME_LIVE === "true";
 
-  const currentPlayer = players.find((player) => player.id === CURRENT_PLAYER_ID) ?? initialPlayers[0];
-  const totalFarmingWeight = players.reduce((total, player) => total + farmingWeight(player), 0);
+  const currentPlayerBase = players.find((player) => player.id === CURRENT_PLAYER_ID) ?? initialPlayers[0];
+  const roster = rosterSummary(activeGangsters);
+  const currentPlayer: GangMember = {
+    ...currentPlayerBase,
+    power: Math.max(currentPlayerBase.power, roster.power),
+    rank: roster.rank && rankPowerValue[roster.rank] >= rankPowerValue[currentPlayerBase.rank]
+      ? roster.rank
+      : currentPlayerBase.rank,
+    name: roster.rank
+      ? (activeGangsters.length >= 3 ? `${roster.rank} Crew` : roster.rank)
+      : currentPlayerBase.name,
+    handle: activeGangsters.length > 1
+      ? `${activeGangsters.length} active gangsters`
+      : activeGangsters.length === 1
+        ? "Gang-claimed character"
+        : currentPlayerBase.handle,
+  };
+  const totalFarmingWeight = players.reduce((total, player) => {
+    if (player.id === CURRENT_PLAYER_ID) return total + farmingWeight(currentPlayer);
+    return total + farmingWeight(player);
+  }, 0);
   const effectivePowerShare = totalFarmingWeight ? farmingWeight(currentPlayer) / totalFarmingWeight : 0;
   const heatMultiplier = !isHustling || (jailedUntil[CURRENT_PLAYER_ID] ?? 0) > currentTime
     ? 0
     : Math.max(0, 1 - Math.floor(heatLevel / 3) / 100);
-  const layingLowUntil = isHustling ? 0 : Number.MAX_SAFE_INTEGER;
+  const layingLowUntil = gameLive
+    ? onChainLayLowUntil
+    : (isHustling ? 0 : Number.MAX_SAFE_INTEGER);
   const spendingFarmPoolUsd = price
     ? spendingFarmPoolTokens * price.gangsterUsd
     : 0;
@@ -387,6 +442,7 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
   }, [gameLive, idleRewardPerHour]);
 
   useEffect(() => {
+    if (gameLive) return;
     const interval = window.setInterval(() => {
       if (!isHustling) {
         setHeatLevel((current) => Math.max(0, current - 1));
@@ -395,13 +451,16 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       }
     }, 60_000);
     return () => window.clearInterval(interval);
-  }, [isHustling]);
+  }, [gameLive, isHustling]);
 
   useEffect(() => {
     let active = true;
     async function loadHustleState() {
       if (!address) {
         setIsHustling(false);
+        setLiveHustleReady(false);
+        setHasJoinedGame(false);
+        setOnChainLayLowUntil(0);
         setHustleStartedAt(0);
         setHustleAccumulatedMs(0);
         setClaimAvailableAt(0);
@@ -414,30 +473,58 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       if (gameLive && gameAddress) {
         try {
           const contract = { address: gameAddress, abi: hoodAtmGameAbi, chainId: hoodAtmChain.id } as const;
-          const [player, pending, claimed, withdrawal, claim] = await readContracts(wagmiConfig, {
-            allowFailure: false,
-            contracts: [
-              { ...contract, functionName: "players", args: [address] },
-              { ...contract, functionName: "pendingRewards", args: [address] },
-              { ...contract, functionName: "claimedBalance", args: [address] },
-              { ...contract, functionName: "withdrawalQuote", args: [address] },
-              { ...contract, functionName: "claimQuote", args: [address] },
-            ],
-          });
+          const [player, pending, claimed, withdrawal, claim, layUntil, jailUntil, heat, heatStarted, pool0, pool1, pool2, pool3] =
+            await readContracts(wagmiConfig, {
+              allowFailure: true,
+              contracts: [
+                { ...contract, functionName: "players", args: [address] },
+                { ...contract, functionName: "pendingRewards", args: [address] },
+                { ...contract, functionName: "claimedBalance", args: [address] },
+                { ...contract, functionName: "withdrawalQuote", args: [address] },
+                { ...contract, functionName: "claimQuote", args: [address] },
+                { ...contract, functionName: "layLowUntil", args: [address] },
+                { ...contract, functionName: "jailedUntil", args: [address] },
+                { ...contract, functionName: "currentHeat", args: [address] },
+                { ...contract, functionName: "heatStartedAt", args: [address] },
+                { ...contract, functionName: "atmClaimPools", args: [0n] },
+                { ...contract, functionName: "atmClaimPools", args: [1n] },
+                { ...contract, functionName: "atmClaimPools", args: [2n] },
+                { ...contract, functionName: "atmClaimPools", args: [3n] },
+              ],
+            });
           if (!active) return;
-          const [joined, tier, power, , , , lifetimeEarned] = player;
-          const [withdrawLimit, average, nextWithdrawal] = withdrawal;
-          const [, , , , feeBps, bonusBps, nextClaim] = claim;
-          const rankByTier: GangMember["rank"][] = ["Civilian", "Hoodlum", "Captain", "General", "OG"];
+          if (player.status !== "success" || pending.status !== "success" || claimed.status !== "success"
+            || withdrawal.status !== "success" || claim.status !== "success" || layUntil.status !== "success"
+            || jailUntil.status !== "success" || heat.status !== "success") {
+            throw new Error("Live contract state is temporarily unavailable");
+          }
+          if (pool0.status === "success" && pool1.status === "success" && pool2.status === "success" && pool3.status === "success") {
+            setAtmPoolContributions([
+              Number(formatUnits(pool0.result, 18)),
+              Number(formatUnits(pool1.result, 18)),
+              Number(formatUnits(pool2.result, 18)),
+              Number(formatUnits(pool3.result, 18)),
+            ]);
+          }
+          const [joined, , , , , , lifetimeEarned] = player.result;
+          const [withdrawLimit, average, nextWithdrawal] = withdrawal.result;
+          const [, , , , feeBps, bonusBps, nextClaim] = claim.result;
+          const layLowMs = Number(layUntil.result) * 1000;
+          const jailMs = Number(jailUntil.result) * 1000;
+          const now = Date.now();
+          const jailed = jailMs > now;
+          const layingLow = layLowMs > now;
+          const hustling = Boolean(joined) && !layingLow && !jailed;
+          const chainHeatStartedMs = heatStarted.status === "success"
+            ? Number(heatStarted.result) * 1000
+            : 0;
           setPlayers((current) => current.map((candidate) => (
             candidate.id === CURRENT_PLAYER_ID
               ? {
                   ...candidate,
-                  rank: rankByTier[Number(tier)] ?? "Civilian",
-                  power: Number(power),
                   earned: Number(formatUnits(lifetimeEarned, 18)),
-                  unclaimed: Number(formatUnits(pending, 18)),
-                  claimed: Number(formatUnits(claimed, 18)),
+                  unclaimed: Number(formatUnits(pending.result, 18)),
+                  claimed: Number(formatUnits(claimed.result, 18)),
                 }
               : candidate
           )));
@@ -445,7 +532,22 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           setLiveWithdrawalGrossLimit(Number(formatUnits(withdrawLimit, 18)));
           setWithdrawalAvailableAt(Number(nextWithdrawal) * 1000);
           setClaimAvailableAt(Number(nextClaim) * 1000);
-          setIsHustling(Boolean(joined));
+          setHasJoinedGame(Boolean(joined));
+          setOnChainLayLowUntil(layLowMs);
+          setJailedUntil((current) => ({ ...current, [CURRENT_PLAYER_ID]: jailMs }));
+          setHeatLevel(Math.min(100, Math.max(0, Number(heat.result))));
+          setIsHustling(hustling);
+          setLiveHustleReady(true);
+          setHustleAccumulatedMs(0);
+          setHustleStartedAt(
+            resolveEarnStartedAt({
+              gameAddress,
+              wallet: address,
+              isEarning: hustling,
+              chainHeatStartedAtMs: chainHeatStartedMs,
+              nowMs: now,
+            }),
+          );
           setLiveClaimTerms({
             feeBps: Number(feeBps),
             bonusBps: Number(bonusBps),
@@ -478,8 +580,19 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         };
         if (!active) return;
         setIsHustling(result.hustling);
-        setHustleStartedAt(result.startedAt ? new Date(result.startedAt).getTime() : 0);
-        setHustleAccumulatedMs(Math.max(0, result.accumulatedMs));
+        setHustleAccumulatedMs(0);
+        if (gameAddress) {
+          setHustleStartedAt(
+            resolveEarnStartedAt({
+              gameAddress,
+              wallet: address,
+              isEarning: result.hustling,
+              chainHeatStartedAtMs: result.startedAt ? new Date(result.startedAt).getTime() : 0,
+            }),
+          );
+        } else {
+          setHustleStartedAt(result.startedAt ? new Date(result.startedAt).getTime() : 0);
+        }
         setHeatLevel(Math.min(100, Math.max(0, result.heat)));
         setClaimAvailableAt(Math.max(0, result.nextClaimAt));
         setUnclaimedSince(Math.max(0, result.unclaimedSince ?? 0));
@@ -504,10 +617,53 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
       }
     }
     void loadHustleState();
+    const refreshMs = gameLive ? 30_000 : 0;
+    const interval = refreshMs
+      ? window.setInterval(() => {
+          void loadHustleState();
+        }, refreshMs)
+      : 0;
     return () => {
       active = false;
+      if (interval) window.clearInterval(interval);
     };
   }, [address, gameAddress, gameLive]);
+
+  useEffect(() => {
+    if (!gameLive || !gameAddress || !address || !isHustling) return;
+    let active = true;
+
+    async function syncPendingRewards() {
+      try {
+        const pending = await readContract(wagmiConfig, {
+          address: gameAddress!,
+          abi: hoodAtmGameAbi,
+          functionName: "pendingRewards",
+          args: [address!],
+          chainId: hoodAtmChain.id,
+        });
+        if (!active) return;
+        const unclaimed = Number(formatUnits(pending, 18));
+        setPlayers((current) => current.map((player) => (
+          player.id === CURRENT_PLAYER_ID
+            ? { ...player, unclaimed }
+            : player
+        )));
+        setLiveHustleReady(true);
+      } catch {
+        // Keep the last confirmed pending balance if the RPC blips.
+      }
+    }
+
+    void syncPendingRewards();
+    const interval = window.setInterval(() => {
+      void syncPendingRewards();
+    }, 1_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [address, gameAddress, gameLive, isHustling]);
 
   useEffect(() => {
     async function loadCharacterGrant() {
@@ -556,46 +712,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         setWithdrawalEligible(result.withdrawalEligible ?? true);
         if (roster.length === 0) {
           setCharacterEarningRate(100);
-          setPlayers((current) => current.map((player) => (
-            player.id === CURRENT_PLAYER_ID
-              ? {
-                  ...player,
-                  name: "Connected player",
-                  handle: "Username not registered",
-                  rank: "Civilian",
-                  power: 1,
-                }
-              : player
-          )));
           return;
         }
-        const totalPower = roster.reduce(
-          (total, gangster) => total + characterPower[gangster.character],
-          0,
-        );
-        const weightedEarningRate = totalPower
-          ? roster.reduce(
-              (total, gangster) => (
-                total + characterPower[gangster.character] * gangster.earningRate
-              ),
-              0,
-            ) / totalPower
-          : 100;
-        const primary = [...roster].sort(
-          (left, right) => characterPower[right.character] - characterPower[left.character],
-        )[0];
-        setCharacterEarningRate(weightedEarningRate);
-        setPlayers((current) => current.map((player) => (
-          player.id === CURRENT_PLAYER_ID
-            ? {
-                ...player,
-                name: roster.length >= 3 ? `${primary.character} Crew` : primary.character,
-                handle: roster.length > 1 ? `${roster.length} active gangsters` : "Gang-claimed character",
-                rank: primary.character,
-                power: totalPower,
-              }
-            : player
-        )));
+        const summary = rosterSummary(roster);
+        setCharacterEarningRate(summary.earningRate);
       } catch {
         // Keep the player's existing state if entitlement lookup is unavailable.
       }
@@ -1085,7 +1205,33 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (action === "start") {
-        setTransactionError("Live reward accrual resumes automatically after the on-chain lay-low period ends.");
+        if (!hasJoinedGame) {
+          setTransactionError("Join hoodATM first — reward accrual starts automatically once you're in.");
+          return;
+        }
+        if (Date.now() < onChainLayLowUntil) {
+          setTransactionError(null);
+          return;
+        }
+        if ((jailedUntil[CURRENT_PLAYER_ID] ?? 0) > Date.now()) {
+          setTransactionError("You're jailed. Reward accrual resumes after release.");
+          return;
+        }
+        // Live accrual is automatic while not laying low or jailed.
+        setIsHustling(true);
+        setHustleAccumulatedMs(0);
+        setHustleStartedAt(
+          resolveEarnStartedAt({
+            gameAddress,
+            wallet: address,
+            isEarning: true,
+          }),
+        );
+        setTransactionError(null);
+        return;
+      }
+      if (heatLevel <= 0) {
+        setTransactionError("Lay low needs heat first. Keep hustling until heat builds, then cool it.");
         return;
       }
       try {
@@ -1104,6 +1250,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
           hash,
           confirmations: 1,
         });
+        clearEarnStartedAt(gameAddress, address);
+        setIsHustling(false);
+        setHustleStartedAt(0);
+        setHustleAccumulatedMs(0);
         window.location.reload();
       } catch (error) {
         setTransactionError(error instanceof Error ? error.message.split("\n")[0] : "Lay-low transaction failed.");
@@ -1133,9 +1283,21 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
         error?: string;
       };
       if (!response.ok) throw new Error(result.error || "Hustle state update failed.");
-      setIsHustling(Boolean(result.hustling));
-      setHustleStartedAt(result.startedAt ? new Date(result.startedAt).getTime() : 0);
-      setHustleAccumulatedMs(Math.max(0, result.accumulatedMs ?? 0));
+      const hustling = Boolean(result.hustling);
+      setIsHustling(hustling);
+      setHustleAccumulatedMs(0);
+      if (gameAddress) {
+        setHustleStartedAt(
+          resolveEarnStartedAt({
+            gameAddress,
+            wallet: address,
+            isEarning: hustling,
+            chainHeatStartedAtMs: result.startedAt ? new Date(result.startedAt).getTime() : 0,
+          }),
+        );
+      } else {
+        setHustleStartedAt(result.startedAt ? new Date(result.startedAt).getTime() : 0);
+      }
       setHeatLevel(Math.min(100, Math.max(0, result.heat ?? 0)));
       setActivePurchasedGangsters(Math.max(
         0,
@@ -1413,12 +1575,14 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
     heatLevel,
     heatMultiplier,
     isHustling,
+    liveHustleReady,
     hustleStartedAt,
     hustleAccumulatedMs,
     hustleStatePending,
     claimAvailableAt,
     claimTerms,
     atmPoolContributions,
+    hasJoinedGame,
     layingLowUntil,
     jailedUntil,
     claimLockedUntil,
@@ -1468,4 +1632,12 @@ export function useMockGang() {
 
 export function formatGangster(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+export function formatSessionGangster(value: number) {
+  const digits = value >= 100 ? 0 : value >= 1 ? 2 : 4;
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(value);
 }

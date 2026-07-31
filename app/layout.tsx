@@ -21,8 +21,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "hoodATM Whitelist",
-  description: "Own the block. Stack the hood. Connect X, complete launch quests, and earn your place in the hoodATM whitelist.",
+  title: "hoodATM — Own the block. Stack the hood.",
+  description: "Idle hustle on Robinhood Chain. Buy $GANGSTER, join the game, farm OG points with X quests, and climb for OG Gangster.",
 };
 
 export default async function RootLayout({

@@ -116,6 +116,16 @@ export const hoodAtmGameAbi = [
   },
   {
     type: "function",
+    name: "markCodeGrantedGangster",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "tier", type: "uint8" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "paidGangster",
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
@@ -168,10 +178,45 @@ export const hoodAtmGameAbi = [
   },
   {
     type: "function",
+    name: "atmClaimPools",
+    stateMutability: "view",
+    inputs: [{ name: "index", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "reservedAtmClaimPools",
+    stateMutability: "view",
+    inputs: [{ name: "index", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "layLow",
     stateMutability: "nonpayable",
     inputs: [],
     outputs: [],
+  },
+  {
+    type: "function",
+    name: "layLowUntil",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "heatStartedAt",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "jailedUntil",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
@@ -280,6 +325,16 @@ export const hoodAtmGameAbi = [
     name: "join",
     stateMutability: "payable",
     inputs: [{ name: "referrer", type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "upgradeTier",
+    stateMutability: "payable",
+    inputs: [
+      { name: "targetTier", type: "uint8" },
+      { name: "maxEthAmount", type: "uint256" },
+    ],
     outputs: [],
   },
   {

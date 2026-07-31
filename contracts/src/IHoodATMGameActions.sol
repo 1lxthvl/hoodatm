@@ -21,7 +21,7 @@ interface IHoodATMGameActions {
     function claim() external;
     function withdraw() external;
     function join(address referrer) external payable;
-    function upgradeTier(uint8 targetTier, uint256 maxGangsterAmount) external;
+    function upgradeTier(uint8 targetTier, uint256 maxEthAmount) external payable;
     function commitPlayerRobbery(address target, bytes32 commitment) external returns (bytes32);
     function commitATMHit(uint8 atmIndex, bytes32 commitment) external returns (bytes32);
     function commitSnitch(bytes32 commitment, uint256 maxGangsterAmount) external returns (bytes32);
@@ -36,7 +36,7 @@ interface IHoodATMGameActions {
     function layLow() external;
     function setGangSystem(address gangSystem) external;
     function checkpointRewards(address account) external;
-    function markCodeGrantedGangster(address account) external;
+    function markCodeGrantedGangster(address account, uint8 tier) external;
     function setActivePurchasedGangsters(uint256 count) external;
     function releaseFromJail(address inmate) external;
 }

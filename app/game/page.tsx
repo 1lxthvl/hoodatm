@@ -25,8 +25,8 @@ const gangsters = [
 
 const systems = [
   { title: "Join the hood", text: "Pay the live equivalent of $5 in ETH for Hood Access. Referred entries also track the 2.5% referral-pool allocation." },
-  { title: "Hold $GANGSTER", text: "Keep at least $10 worth of $GANGSTER in the connected wallet to keep game access active." },
-  { title: "Recruit gangsters", text: "Choose Hoodlum, Captain, General, or OG characters to add power to your account." },
+  { title: "Hold $GANGSTER", text: "Keep at least $5 worth of $GANGSTER in the connected wallet to keep game access active." },
+  { title: "Recruit gangsters", text: "Upgrade with live ETH (USD-priced tiers) to Hoodlum, Captain, General, or OG for more power." },
   { title: "Build a Crew", text: "Run multiple active gangsters. Extra slots start at $10, double each time, and three slots make a Crew." },
   { title: "Hustle", text: "The daily farm starts at $2.50, gains 10% of that base per active purchased gangster, and caps at $5 with 10. Code grants do not raise it; recycled $GANGSTER spending is added on top." },
   { title: "Manage heat", text: "Heat rises while hustling and gradually cuts the account's earning power." },
@@ -57,7 +57,7 @@ export default function Home() {
             Build your crew, stack the block, and hit the ATMs for the jackpot.
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
-            Pay the live equivalent of $5 in ETH to join the gang, then keep at least $10 worth of $GANGSTER in your connected wallet to stay in the game. Entry payments go directly to the hoodATM treasury, with a 2.5% referral-pool allocation tracked for referred entries.
+            Pay the live equivalent of $5 in ETH to join the gang, then keep at least $5 worth of $GANGSTER in your connected wallet to stay in the game. Entry payments go directly to the hoodATM treasury, with a 2.5% referral-pool allocation tracked for referred entries.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
             <Link href="/create" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 to-cyan-500 px-5 py-3 font-semibold text-white transition hover:opacity-90">
@@ -71,7 +71,7 @@ export default function Home() {
           <div className="mt-10 grid gap-4 sm:grid-cols-2">
             {[
               { value: "$5 in ETH", label: "Initiation allocation" },
-              { value: <GangsterUsdAmount usd={10} compact />, label: "$10 live wallet hold" },
+              { value: <GangsterUsdAmount usd={5} compact />, label: "$5 live wallet hold" },
               { value: "1B", label: "$GANGSTER supply" },
               { value: "6h", label: "ATM hit cooldown" },
             ].map((item) => (
@@ -88,7 +88,7 @@ export default function Home() {
           <div className="absolute inset-0 hood-logo-grit" />
           <div className="relative z-10 flex items-center justify-between text-sm text-lime-200">
             <span className="inline-flex items-center gap-2 rounded-full border border-lime-300/35 bg-black/55 px-3 py-1.5 font-bold uppercase tracking-[0.14em]"><CircleDollarSign className="h-4 w-4" /> Hood control</span>
-            <span className="rounded-full border border-amber-300/40 bg-amber-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-amber-100">Pre-launch</span>
+            <span className="rounded-full border border-lime-300/40 bg-lime-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-lime-100">Season 1 Live</span>
           </div>
           <div className="absolute left-4 top-20 z-10 rounded-2xl border border-amber-200/30 bg-black/60 p-2 shadow-2xl animate-floating">
             <AtmMachine tier="very-high" className="h-28 w-24" />
@@ -140,7 +140,7 @@ export default function Home() {
         </div>
         <div className="mt-6 rounded-[2rem] border border-fuchsia-500/20 bg-slate-950/70 p-6 text-slate-300">
           <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-200">CIVILIAN starter</p>
-          <p className="mt-3 text-base leading-7">Every newcomer begins as a CIVILIAN with level 1 power. Pay the gangster upgrade fee to climb the chain gang and unlock Hoodlum, Captain, General, or OG status. Your farm share is based on effective power and dilutes as total network power grows.</p>
+          <p className="mt-3 text-base leading-7">Every newcomer begins as a CIVILIAN with level 1 power. Pay the live ETH upgrade quote to climb the chain gang and unlock Hoodlum, Captain, General, or OG status. Your farm share is based on effective power and dilutes as total network power grows.</p>
         </div>
         <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           {gangsters.map((gangster) => (
@@ -172,7 +172,7 @@ export default function Home() {
           <div>
             <p className="text-sm font-medium uppercase tracking-[0.3em] text-cyan-200">Economy</p>
             <h2 className="mt-3 text-3xl font-semibold text-white">The block fund runs on risk, power, and pressure.</h2>
-            <p className="mt-3 max-w-2xl text-lg text-slate-300">A $5 ETH treasury deposit brings players into the gang; referred entries track a 2.5% referral-pool allocation. The $10 $GANGSTER wallet hold keeps the crew committed. Crew power, claim burns, rewards, and jackpot risk drive the block economy.</p>
+            <p className="mt-3 max-w-2xl text-lg text-slate-300">A $5 ETH treasury deposit brings players into the gang; referred entries track a 2.5% referral-pool allocation. The $5 $GANGSTER wallet hold keeps the crew committed. Crew power, claim burns, rewards, and jackpot risk drive the block economy.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {[

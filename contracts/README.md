@@ -17,8 +17,9 @@ The production design uses the existing Robinhood Chain mainnet token and Pons p
 
 - a live `$5` ETH entry quote, forwarded in full directly to the treasury, with only overpayment refunded;
 - a 2.5% referral entry allocation accounted exclusively in live-quoted GANGSTER units; it never reduces or redirects ETH;
-- a live `$10` GANGSTER wallet-hold access requirement;
-- USD-anchored GANGSTER rank and ATM values;
+- a live `$5` GANGSTER wallet-hold access requirement;
+- USD-anchored rank upgrades paid in live ETH (Chainlink), forwarded in full to the treasury;
+- USD-anchored GANGSTER ATM values and other $GANGSTER gameplay spends;
 - a daily base farm funded at a live `$2.50`–`$5` equivalent;
 - 25% of every GANGSTER gameplay payment redirected into the active farm period, with the remaining 75% sent to the treasury;
 - separate treasury-funded bonus reward pools;

@@ -1,19 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowRight, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Share2, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { waitForTransactionReceipt } from "@wagmi/core";
 import { Address, formatEther, isAddress, zeroAddress } from "viem";
 import { readContract } from "@wagmi/core";
 import { useAccount, useReadContract, useSwitchChain, useWriteContract } from "wagmi";
 import { GangsterUsdAmount } from "../components/gangster-price-provider";
+import { ReferralLinkCard } from "../components/referral-link-card";
 import { hoodAtmChain, hoodAtmGameAbi } from "../lib/robinhood-chain";
 import { wagmiConfig } from "../lib/wagmi-config";
 
 const launchSteps = [
   { title: "Join", description: "Pay the live equivalent of $5 in ETH. The contract forwards the exact payment to the hoodATM treasury." },
-  { title: "Hold", description: "Keep at least $10 worth of $GANGSTER in your connected wallet to unlock and retain game access." },
-  { title: "Upgrade", description: "Pay the live $GANGSTER quote to move from Civilian to Hoodlum, Captain, General, or OG." },
+  { title: "Hold", description: "Keep at least $5 worth of $GANGSTER in your connected wallet to unlock and retain game access." },
+  { title: "Upgrade", description: "Pay the live ETH quote (USD-priced tiers) to move from Civilian to Hoodlum, Captain, General, or OG. ETH goes to the treasury." },
   { title: "Hit", description: "Use earned, unclaimed $GANGSTER on on-chain ATM and player robbery actions." },
 ];
 
@@ -22,6 +24,7 @@ export default function CreatePage() {
   const [referralCode, setReferralCode] = useState("");
   const [referralStatus, setReferralStatus] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [joined, setJoined] = useState(false);
   const { address, isConnected, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const { writeContractAsync, isPending } = useWriteContract();
@@ -108,6 +111,7 @@ export default function CreatePage() {
       setStatus("Payment submitted. Waiting for Robinhood Chain confirmation…");
       await waitForTransactionReceipt(wagmiConfig, { chainId: hoodAtmChain.id, hash, confirmations: 1 });
       window.localStorage.removeItem("hoodatm_referral_code");
+      setJoined(true);
       setStatus("You are in. Keep the required $GANGSTER value in this wallet to retain access.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message.split("\n")[0] : "Entry transaction failed.");
@@ -123,7 +127,7 @@ export default function CreatePage() {
         </div>
         <h1 className="text-4xl font-semibold tracking-tight text-white">Own the block. Stack the hood.</h1>
         <p className="mt-4 max-w-2xl text-lg text-slate-300">
-          hoodATM has one initiation payment: $5 worth of ETH, quoted by Chainlink at entry and deposited into the hoodATM treasury. $GANGSTER is not a second buy-in: keep at least $10 worth in your connected wallet to access the game.
+          hoodATM has one initiation payment: $5 worth of ETH, quoted by Chainlink at entry and deposited into the hoodATM treasury. $GANGSTER is not a second buy-in: keep at least $5 worth in your connected wallet to access the game.
         </p>
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           {launchSteps.map((step) => (
@@ -148,8 +152,8 @@ export default function CreatePage() {
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">$GANGSTER wallet hold · $10 USD</p>
-            <p className="mt-1 font-semibold text-white"><GangsterUsdAmount usd={10} /></p>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">$GANGSTER wallet hold · $5 USD</p>
+            <p className="mt-1 font-semibold text-white"><GangsterUsdAmount usd={5} /></p>
           </div>
           <label className="block text-sm text-slate-300">
             Referrer wallet (optional)
@@ -172,13 +176,34 @@ export default function CreatePage() {
             <ArrowRight className="h-4 w-4" />
           </button>
           {status && <p className="rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-slate-300">{status}</p>}
+          {joined ? (
+            <div className="space-y-4 rounded-2xl border border-lime-300/25 bg-lime-300/10 p-4">
+              <p className="font-bold text-lime-100">First moves</p>
+              <ol className="space-y-2 text-sm leading-6 text-slate-300">
+                <li>1. Register your gangster username below so referral loot bonuses work.</li>
+                <li>2. Open Hustle and start the earn clock.</li>
+                <li>3. Share your link — empty rob floors need rivals.</li>
+              </ol>
+              <Link href="/hustle" className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-lime-300 px-4 py-3 text-sm font-black text-[#10130c]">
+                Open hustle <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          ) : null}
         </div>
+        {joined ? (
+          <div className="mt-6">
+            <div className="mb-3 inline-flex items-center gap-2 text-sm font-bold text-cyan-200">
+              <Share2 className="h-4 w-4" /> Claim your crew code
+            </div>
+            <ReferralLinkCard />
+          </div>
+        ) : null}
         <div className="mt-6 flex items-center gap-2 text-sm text-slate-400">
           <Zap className="h-4 w-4" />
-          Treasury deposit: $5 in ETH · Access: hold $10 in $GANGSTER
+          Treasury deposit: $5 in ETH · Access: hold $5 in $GANGSTER
         </div>
         <p className="mt-4 text-sm text-slate-500">
-          The token hold remains in your wallet. Paid $GANGSTER upgrades are quoted from a manipulation-resistant 30-minute pool TWAP and deposited directly to the treasury.
+          The token hold remains in your wallet. Paid tier upgrades are quoted in ETH from Chainlink ETH/USD and deposited directly to the treasury.
         </p>
         <p className="mt-3 text-xs leading-5 text-slate-600">
           For account security, abuse prevention, and referral attribution, hoodATM records the connected wallet, verified X username, IP address, and account status.

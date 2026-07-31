@@ -8,10 +8,10 @@ import { GangsterWalletBalance } from "./gangster-wallet-balance";
 import { ChainStatusBar } from "./chain-status-bar";
 
 const navItems = [
-  { href: "/", label: "Whitelist", public: true },
+  { href: "/", label: "Home", public: true },
   { href: "/game", label: "Game", public: true },
   { href: "/hustle", label: "Hustle", public: false },
-  { href: "/create", label: "Start Mobbin'", public: false },
+  { href: "/create", label: "Start Mobbin'", public: true },
   { href: "/rob", label: "Rob", public: false },
   { href: "/leaderboard", label: "Leaderboard", public: false },
   { href: "/activity", label: "Activity", public: false },
@@ -25,19 +25,19 @@ const navItems = [
 export function SiteShell({
   children,
   adminAccess = false,
-  hoodAccess = false,
   initiatedAccess = false,
 }: {
   children: React.ReactNode;
   adminAccess?: boolean;
+  /** @deprecated Access codes no longer gate play; kept for layout call-site compat. */
   hoodAccess?: boolean;
   initiatedAccess?: boolean;
 }) {
   const pathname = usePathname();
   const gameLive = process.env.NEXT_PUBLIC_GAME_LIVE === "true";
-  const publicRoute = pathname === "/" || pathname === "/game" || pathname === "/referral";
-  const routeAvailable =
-    publicRoute || gameLive || adminAccess || initiatedAccess || (hoodAccess && pathname === "/create");
+  const publicRoute =
+    pathname === "/" || pathname === "/game" || pathname === "/referral" || pathname === "/create";
+  const routeAvailable = publicRoute || gameLive || adminAccess || initiatedAccess;
 
   return (
     <div className="hood-theme min-h-screen text-slate-100">
@@ -52,8 +52,7 @@ export function SiteShell({
           <nav className="hidden items-center gap-4 xl:flex">
             {navItems.map((item) => {
               if (item.adminOnly && !adminAccess) return null;
-              const unlocked =
-                item.public || gameLive || adminAccess || initiatedAccess || (hoodAccess && item.href === "/create");
+              const unlocked = item.public || gameLive || adminAccess || initiatedAccess;
 
               return unlocked ? (
                 <Link key={item.href} href={item.href} className="text-sm text-slate-300 transition hover:text-white">
@@ -63,7 +62,7 @@ export function SiteShell({
                 <span
                   key={item.href}
                   className="inline-flex cursor-not-allowed items-center gap-1.5 text-sm text-slate-600"
-                  title="$5 ETH initiation and $10 in $GANGSTER required"
+                  title="$5 ETH initiation and $5 in $GANGSTER required"
                 >
                   {item.label} <LockKeyhole className="h-3 w-3" />
                 </span>
@@ -84,12 +83,15 @@ export function SiteShell({
               <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-lime-400/35 bg-lime-400/10">
                 <LockKeyhole className="h-6 w-6 text-lime-300" />
               </div>
-              <p className="mt-6 text-sm font-black uppercase tracking-[0.28em] text-lime-200">Hood Access locked</p>
-              <h1 className="mt-4 text-4xl font-black uppercase tracking-tight text-white">Get checked before you enter.</h1>
+              <p className="mt-6 text-sm font-black uppercase tracking-[0.28em] text-lime-200">Join to unlock</p>
+              <h1 className="mt-4 text-4xl font-black uppercase tracking-tight text-white">Start mobbin&apos; first.</h1>
               <p className="mx-auto mt-4 max-w-xl text-slate-300">
-                When the game opens, access requires the $5 ETH initiation and at least $10 in $GANGSTER held in your connected wallet.
+                No access code. Join with $5 ETH initiation and keep at least $5 in $GANGSTER in your wallet to unlock hustle, rob, and the rest of the hood.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3">
+                <Link href="/create" className="rounded-full bg-lime-300 px-5 py-2.5 text-sm font-black text-[#10130c] transition hover:bg-lime-200">
+                  Start mobbin&apos;
+                </Link>
                 <CustomConnectButton />
                 <Link href="/game" className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-bold text-white transition hover:border-white/30">
                   View the game

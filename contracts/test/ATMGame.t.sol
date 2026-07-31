@@ -178,21 +178,18 @@ contract ATMGameTest is Test {
     function testTierUpgradeUsesDynamicQuoteAndPaysTreasury() public {
         _join(alice);
         uint256 quote = game.quoteTierUpgrade(alice, 1);
-        vm.prank(alice);
-        token.approve(address(game), quote);
 
-        uint256 treasuryBefore = token.balanceOf(TREASURY);
+        uint256 treasuryBefore = TREASURY.balance;
+        uint256 aliceBefore = alice.balance;
         vm.prank(alice);
-        game.upgradeTier(1, quote);
+        game.upgradeTier{value: quote + 0.01 ether}(1, quote + 0.01 ether);
 
         (, uint8 tier, uint32 power,,,,) = game.players(alice);
         assertEq(tier, 1);
         assertEq(power, 5);
-        assertEq(
-            token.balanceOf(TREASURY) - treasuryBefore,
-            quote - (quote * 2_500) / 10_000
-        );
-        assertEq(game.spendingFarmPoolContributed(), (quote * 2_500) / 10_000);
+        assertEq(TREASURY.balance - treasuryBefore, quote);
+        assertEq(aliceBefore - alice.balance, quote);
+        assertEq(game.spendingFarmPoolContributed(), 0);
         assertEq(game.activePurchasedGangsters(), 1);
         assertEq(game.dailyBaseFarmUsd(), 2.75 ether);
     }
@@ -305,9 +302,11 @@ contract ATMGameTest is Test {
     function testCodeGrantedGangsterNeedsPaidGangsterAndReceivesFreeSlot() public {
         _join(alice);
         vm.prank(TREASURY);
-        game.markCodeGrantedGangster(alice);
+        game.markCodeGrantedGangster(alice, 0);
         assertTrue(game.codeGrantedGangster(alice));
         assertEq(game.gangsterSlots(alice), 1);
+        (, , uint32 powerAfterMark, , , , ) = game.players(alice);
+        assertEq(powerAfterMark, 1);
 
         token.mint(TREASURY, 24_000_000 ether);
         vm.startPrank(TREASURY);
@@ -333,15 +332,31 @@ contract ATMGameTest is Test {
 
         uint256 quote = game.quoteTierUpgrade(alice, 1);
         vm.prank(alice);
-        token.approve(address(game), quote);
-        vm.prank(alice);
-        game.upgradeTier(1, quote);
+        game.upgradeTier{value: quote}(1, quote);
 
         assertTrue(game.paidGangster(alice));
         assertTrue(game.codeBonusSlotGranted(alice));
         assertEq(game.gangsterSlots(alice), 2);
         (uint256 enabledGross,,) = game.withdrawalQuote(alice);
         assertGt(enabledGross, 0);
+    }
+
+    function testCodeGrantedGangsterCanApplyTierPower() public {
+        _join(alice);
+        uint256 powerBefore = game.totalPower();
+        vm.prank(TREASURY);
+        game.markCodeGrantedGangster(alice, 4);
+        assertTrue(game.codeGrantedGangster(alice));
+        (, uint8 tierAfter, uint32 powerAfter, , , , ) = game.players(alice);
+        assertEq(tierAfter, 4);
+        assertEq(powerAfter, 750);
+        assertEq(game.totalPower(), powerBefore - 1 + 750);
+        // Re-applying a lower or equal grant must not reduce power.
+        vm.prank(TREASURY);
+        game.markCodeGrantedGangster(alice, 2);
+        (, uint8 tierFinal, uint32 powerFinal, , , , ) = game.players(alice);
+        assertEq(powerFinal, 750);
+        assertEq(tierFinal, 4);
     }
 
     function testAtmChancesScaleWithPowerAndRespectBaseCaps() public view {

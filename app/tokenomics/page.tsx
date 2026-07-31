@@ -4,10 +4,10 @@ import { GangsterUsdAmount } from "../components/gangster-price-provider";
 
 const tiers = [
   { name: "Civilian", totalUsd: 5, power: "1", role: "Initiation-only starting power" },
-  { name: "Hoodlum", totalUsd: 7.5, power: "5", role: "$5 initiation + $2.50 upgrade" },
-  { name: "Captain", totalUsd: 17.5, power: "30", role: "$5 initiation + $12.50 upgrade" },
-  { name: "General", totalUsd: 55, power: "135", role: "Elite block power" },
-  { name: "OG", totalUsd: 255, power: "750", role: "Most powerful gangster tier" },
+  { name: "Hoodlum", totalUsd: 7.5, power: "5", role: "$5 ETH initiation + $2.50 ETH upgrade" },
+  { name: "Captain", totalUsd: 17.5, power: "30", role: "$5 ETH initiation + $12.50 ETH upgrade" },
+  { name: "General", totalUsd: 55, power: "135", role: "$5 ETH initiation + $50 ETH upgrade" },
+  { name: "OG", totalUsd: 255, power: "750", role: "$5 ETH initiation + $250 ETH upgrade" },
 ];
 
 const atmAllocs = [
@@ -35,7 +35,7 @@ export default function GangstanomicsPage() {
         </div>
         <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white">$GANGSTER economics for idle farming and ATM jackpots.</h1>
         <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
-          hoodATM is built around a 1B on-chain token supply, a live $5 ETH initiation allocation, and a $10 $GANGSTER wallet-hold requirement. Every new recruit becomes a gang member after entry and keeps access by holding the required $GANGSTER value in their connected wallet.
+          hoodATM is built around a 1B on-chain token supply, a live $5 ETH initiation allocation, and a $5 $GANGSTER wallet-hold requirement. Every new recruit becomes a gang member after entry and keeps access by holding the required $GANGSTER value in their connected wallet.
         </p>
       </section>
 
@@ -48,7 +48,7 @@ export default function GangstanomicsPage() {
           {[
             { label: "Treasury deposit", value: "100% of $5 entry" },
             { label: "Tracked referral allocation", value: "2.5% of referred entry" },
-            { label: "$GANGSTER wallet hold", value: "$10 minimum" },
+            { label: "$GANGSTER wallet hold", value: "$5 minimum" },
             { label: "Player-robbery boost", value: "2.5% each · 25% max" },
             { label: "Commitment rule", value: "Hold, don’t spend" },
           ].map((item) => (
@@ -63,7 +63,7 @@ export default function GangstanomicsPage() {
       <section className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-8">
         <h2 className="text-2xl font-semibold text-white">Crew power & block earnings</h2>
         <p className="mt-4 text-slate-300">
-          Gangster cost is paid in $GANGSTER and power is the key farming metric. The daily base earning pool starts at $2.50 and increases by 10% of that base for every active purchased gangster, reaching its $5 cap at 10. Code-granted characters do not increase the pool. Then 25% of every $GANGSTER gameplay payment is recycled into that day&apos;s farm pool. Idle rewards are distributed based on your power share relative to total network power. Earnings remain unclaimed—and exposed to robberies—until the player claims them.
+          Gangster tier upgrades are paid in ETH at the live USD quote, and power is the key farming metric. The daily base earning pool starts at $2.50 and increases by 10% of that base for every active purchased gangster, reaching its $5 cap at 10. Code-granted characters do not increase the pool. Then 25% of every $GANGSTER gameplay payment (ATM burns, snitch, jail, gang actions) is recycled into that day&apos;s farm pool. Idle rewards are distributed based on your power share relative to total network power. Earnings remain unclaimed—and exposed to robberies—until the player claims them.
         </p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {tiers.map((tier) => (

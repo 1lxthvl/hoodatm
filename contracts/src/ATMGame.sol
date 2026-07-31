@@ -4,16 +4,17 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {GangsterPriceOracle} from "./GangsterPriceOracle.sol";
 import {GangsterHoldingOracle} from "./GangsterHoldingOracle.sol";
 import {RandomnessResolver} from "./RandomnessResolver.sol";
 import {ATMGameMath} from "./ATMGameMath.sol";
+import {ATMGameCombat} from "./ATMGameCombat.sol";
+import {ATMGameTypes} from "./ATMGameTypes.sol";
 
 /// @notice Production game accounting for hoodATM on Robinhood Chain.
 /// @dev Chance-based actions require a player reveal and an EIP-712 resolver attestation.
-contract ATMGame is Ownable2Step, ReentrancyGuard {
+contract ATMGame is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     error AccessDenied();
@@ -45,29 +46,16 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     uint256 internal constant JOIN_USD_E18 = 5 ether;
-    uint256 internal constant ACCESS_HOLD_USD_E18 = 10 ether;
-    uint256 internal constant DAILY_BASE_FARM_MIN_USD_E18 = 2.5 ether;
-    uint256 internal constant DAILY_BASE_FARM_MAX_USD_E18 = 5 ether;
-    uint256 internal constant DAILY_BASE_FARM_PURCHASE_BOOST_BPS = 1_000;
-    uint256 internal constant DAILY_BASE_FARM_PURCHASE_CAP = 10;
+    uint256 internal constant ACCESS_HOLD_USD_E18 = 5 ether;
     uint256 internal constant CLAIM_BURN_BPS = 1_000;
     uint256 internal constant SPEND_TO_FARM_BPS = 2_500;
-    uint256 internal constant MAX_CLAIM_FEE_BPS = 2_000;
-    uint256 internal constant MAX_CLAIM_BONUS_BPS = 2_000;
-    uint256 internal constant CLAIM_STEP_BPS = 200;
     uint256 internal constant CLAIM_COOLDOWN = 1 hours;
-    uint256 internal constant CLAIM_FEE_END_HOUR = 10;
-    uint256 internal constant CLAIM_BONUS_CAP_HOUR = 20;
     uint256 internal constant BPS = 10_000;
     uint256 internal constant ACC_REWARD_PRECISION = 1e24;
     uint256 internal constant ACTION_COOLDOWN = 6 hours;
     uint256 internal constant WITHDRAWAL_COOLDOWN = 12 hours;
     uint256 internal constant WITHDRAWAL_BPS = 5_000;
     uint256 internal constant HOLDING_OBSERVATION_MAX_AGE = 1 hours;
-    uint256 internal constant CHANCE_PRECISION = 100_000_000;
-    uint256 internal constant JAIL_DURATION = 3 hours;
-    uint256 internal constant SNITCH_WINDOW = 24 hours;
-    uint256 internal constant SNITCH_CHANCE_BPS = 500;
     uint256 internal constant SNITCH_USD_E18 = 1 ether;
     uint256 internal constant JAIL_PHONE_USD_E18 = 2 ether;
     uint256 internal constant MIN_REVEAL_DELAY = 30 seconds;
@@ -78,49 +66,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     ATMGameMath internal immutable gameMath;
     bool public paused = true;
     address public gangSystem;
+    address public codeGranter;
 
-    struct Player {
-        bool joined;
-        uint8 tier;
-        uint32 power;
-        uint32 directReferrals;
-        uint256 unclaimed;
-        uint256 rewardDebt;
-        uint256 lifetimeEarned;
-    }
-
-    enum ActionKind {
-        None,
-        PlayerRobbery,
-        ATMHit,
-        Snitch,
-        JailShop,
-        PhoneHit
-    }
-
-    struct PendingAction {
-        ActionKind kind;
-        address target;
-        bytes32 commitment;
-        address resolver;
-        uint64 committedAt;
-        uint64 expiresAt;
-        uint64 nonce;
-        uint8 atmIndex;
-        uint256 forfeiture;
-        uint256 reservedReward;
-        uint256 reservedAtmPool;
-    }
-
-    struct ATMConfig {
-        uint32 civilianChanceE8;
-        uint32 maximumChanceE8;
-        uint256 rewardUsdE18;
-        uint256 lossUsdE18;
-    }
-
-    mapping(address => Player) public players;
-    mapping(address => PendingAction) internal pendingActions;
+    mapping(address => ATMGameTypes.Player) public players;
+    mapping(address => ATMGameTypes.PendingAction) internal pendingActions;
     mapping(address => uint64) internal actionNonces;
     mapping(address => mapping(address => uint256)) public playerAttackAvailableAt;
     mapping(address => mapping(uint8 => uint256)) public atmAvailableAt;
@@ -129,7 +78,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     mapping(address => uint256) public lastClaimAt;
     mapping(address => uint256) public unclaimedSince;
     mapping(address => uint256) internal playerRewardUpdatedAt;
-    mapping(address => uint256) internal heatStartedAt;
+    mapping(address => uint256) public heatStartedAt;
     mapping(address => uint256) public layLowUntil;
     mapping(address => uint256) public jailedUntil;
     mapping(address => address) public snitchTarget;
@@ -147,7 +96,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     mapping(address => bool) public paidGangster;
     mapping(address => uint256) public gangsterSlots;
     mapping(address => bool) public codeBonusSlotGranted;
-    ATMConfig[4] public atms;
+    ATMGameTypes.ATMConfig[4] public atms;
     uint256[4] public atmClaimPools;
     uint256[4] public reservedAtmClaimPools;
 
@@ -170,7 +119,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         uint256 ethPaid,
         uint256 referralPoolAllocation
     );
-    event TierUpgraded(address indexed player, uint8 indexed tier, uint32 power, uint256 gangsterPaid);
+    event TierUpgraded(address indexed player, uint8 indexed tier, uint32 power, uint256 ethPaid);
     event RewardsFunded(uint256 amount, uint256 duration, uint256 rewardRate);
     event BonusPoolFunded(uint256 amount);
     event GangsterSpendRouted(
@@ -195,47 +144,14 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     event CodeGrantedGangsterMarked(address indexed player);
     event CodeBonusSlotUnlocked(address indexed player, uint256 slots);
     event ActivePurchasedGangstersUpdated(uint256 activePurchasedGangsters, uint256 dailyBaseFarmUsdE18);
-    event SnitchSettled(address indexed informant, address indexed target, bool jailed, uint256 cost);
-    event JailPurchaseSettled(
-        address indexed inmate,
-        uint8 indexed item,
-        uint8 outcome,
-        uint256 cost,
-        uint256 jailEndsAt
-    );
-    event PhoneHitSettled(
-        address indexed inmate,
-        address indexed target,
-        bool won,
-        uint256 recovered,
-        uint16 recoveryBps
-    );
     event ActionCommitted(
         bytes32 indexed requestId,
         address indexed attacker,
-        ActionKind indexed kind,
+        ATMGameTypes.ActionKind indexed kind,
         address target,
         uint8 atmIndex,
         uint64 nonce
     );
-    event PlayerRobberySettled(
-        bytes32 indexed requestId,
-        address indexed attacker,
-        address indexed target,
-        bool won,
-        uint256 amount,
-        uint256 referralBonus,
-        uint16 chanceBps
-    );
-    event ATMHitSettled(
-        bytes32 indexed requestId,
-        address indexed attacker,
-        uint8 indexed atmIndex,
-        bool won,
-        uint256 amount,
-        uint32 chanceE8
-    );
-    event ActionForfeited(bytes32 indexed requestId, address indexed attacker, uint256 penalty);
 
     modifier whenNotPaused() {
         if (paused) revert ContractPaused();
@@ -243,7 +159,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     modifier onlyActiveMember() {
-        if (!hasActiveAccess(msg.sender)) revert AccessDenied();
+        if (!_hasLiveAccess(msg.sender)) revert AccessDenied();
         _;
     }
 
@@ -269,14 +185,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         lastRewardTime = block.timestamp;
 
         // Civilian chances scale by tier power and can never exceed the original base chance.
-        atms[0] = ATMConfig({civilianChanceE8: 700_000, maximumChanceE8: 70_000_000, rewardUsdE18: 0.004 ether, lossUsdE18: 0.001 ether});
-        atms[1] = ATMConfig({civilianChanceE8: 50_000, maximumChanceE8: 50_000_000, rewardUsdE18: 0.01 ether, lossUsdE18: 0.003 ether});
-        atms[2] = ATMConfig({civilianChanceE8: 10_500, maximumChanceE8: 30_000_000, rewardUsdE18: 0.025 ether, lossUsdE18: 0.007 ether});
-        atms[3] = ATMConfig({civilianChanceE8: 1_500, maximumChanceE8: 15_000_000, rewardUsdE18: 0.075 ether, lossUsdE18: 0.02 ether});
-    }
-
-    receive() external payable {
-        revert InvalidAction();
+        atms[0] = ATMGameTypes.ATMConfig({civilianChanceE8: 700_000, maximumChanceE8: 70_000_000, rewardUsdE18: 0.004 ether, lossUsdE18: 0.001 ether});
+        atms[1] = ATMGameTypes.ATMConfig({civilianChanceE8: 50_000, maximumChanceE8: 50_000_000, rewardUsdE18: 0.01 ether, lossUsdE18: 0.003 ether});
+        atms[2] = ATMGameTypes.ATMConfig({civilianChanceE8: 10_500, maximumChanceE8: 30_000_000, rewardUsdE18: 0.025 ether, lossUsdE18: 0.007 ether});
+        atms[3] = ATMGameTypes.ATMConfig({civilianChanceE8: 1_500, maximumChanceE8: 15_000_000, rewardUsdE18: 0.075 ether, lossUsdE18: 0.02 ether});
     }
 
     function setPaused(bool paused_) external onlyOwner {
@@ -289,6 +201,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         gangSystem = gangSystem_;
     }
 
+    function setCodeGranter(address codeGranter_) external onlyOwner {
+        codeGranter = codeGranter_;
+    }
+
     function setActivePurchasedGangsters(uint256 count) external onlyOwner {
         activePurchasedGangsters = count;
         emit ActivePurchasedGangstersUpdated(count, dailyBaseFarmUsd());
@@ -298,18 +214,33 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         return gameMath.dailyBaseFarmUsd(activePurchasedGangsters);
     }
 
-    /// @notice Mirrors a verified one-time character-code redemption into the game contract.
-    /// @dev The owner calls this only after the off-chain code registry binds the grant to this wallet.
-    function markCodeGrantedGangster(address account) external onlyOwner {
-        if (!players[account].joined || codeGrantedGangster[account]) revert InvalidAction();
-        codeGrantedGangster[account] = true;
-        if (gangsterSlots[account] == 0) gangsterSlots[account] = 1;
-        if (paidGangster[account] && !codeBonusSlotGranted[account]) {
-            gangsterSlots[account] += 1;
-            codeBonusSlotGranted[account] = true;
-            emit CodeBonusSlotUnlocked(account, gangsterSlots[account]);
+    /// @notice Mirrors a verified code/admin gangster into on-chain power.
+    /// @dev `tier` 1..4 applies that tier's power when higher than current power. `0` only marks the flag.
+    function markCodeGrantedGangster(address account, uint8 tier) external {
+        if (msg.sender != owner() && msg.sender != codeGranter) revert AccessDenied();
+        if (!players[account].joined || tier > 4) revert InvalidAction();
+        _updatePlayer(account);
+        ATMGameTypes.Player storage player = players[account];
+        if (!codeGrantedGangster[account]) {
+            codeGrantedGangster[account] = true;
+            if (gangsterSlots[account] == 0) gangsterSlots[account] = 1;
+            if (paidGangster[account] && !codeBonusSlotGranted[account]) {
+                unchecked { gangsterSlots[account] += 1; }
+                codeBonusSlotGranted[account] = true;
+                emit CodeBonusSlotUnlocked(account, gangsterSlots[account]);
+            }
+            emit CodeGrantedGangsterMarked(account);
         }
-        emit CodeGrantedGangsterMarked(account);
+        if (tier != 0) {
+            uint32 grantedPower = gameMath.tierPower(tier);
+            if (grantedPower > player.power) {
+                totalPower = totalPower - player.power + grantedPower;
+                player.power = grantedPower;
+                if (tier > player.tier) player.tier = tier;
+                _syncRewardDebt(player);
+                emit TierUpgraded(account, player.tier, player.power, 0);
+            }
+        }
     }
 
     function releaseFromJail(address inmate) external {
@@ -320,7 +251,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function join(address referrer) external payable nonReentrant whenNotPaused {
-        Player storage player = players[msg.sender];
+        ATMGameTypes.Player storage player = players[msg.sender];
         if (player.joined) revert AlreadyJoined();
 
         uint256 requiredEth = oracle.quoteEthForUsd(JOIN_USD_E18);
@@ -379,8 +310,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
     function earningMultiplierBps(address account) public view returns (uint16) {
         if (block.timestamp < layLowUntil[account] || block.timestamp < jailedUntil[account]) return 0;
-        uint256 heat = currentHeat(account);
-        return uint16(10_000 - ((heat / 3) * 100));
+        return gameMath.earningMultiplierBps(currentHeat(account));
     }
 
     function currentHeat(address account) public view returns (uint8) {
@@ -401,19 +331,10 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function setUsername(string calldata username) external onlyActiveMember {
-        bytes memory raw = bytes(username);
-        if (raw.length < 3 || raw.length > 15) revert InvalidUsername();
-        for (uint256 i; i < raw.length; ++i) {
-            bytes1 character = raw[i];
-            bool valid = (character >= 0x61 && character <= 0x7a)
-                || (character >= 0x30 && character <= 0x39) || character == 0x5f;
-            if (!valid) revert InvalidUsername();
-        }
-
-        bytes32 usernameHash = keccak256(raw);
+        if (!gameMath.isValidUsername(username)) revert InvalidUsername();
+        bytes32 usernameHash = keccak256(bytes(username));
         address currentOwner = usernameOwner[usernameHash];
         if (currentOwner != address(0) && currentOwner != msg.sender) revert UsernameTaken();
-
         bytes memory oldUsername = bytes(usernames[msg.sender]);
         if (oldUsername.length != 0) delete usernameOwner[keccak256(oldUsername)];
         usernames[msg.sender] = username;
@@ -425,34 +346,35 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         return usernameOwner[keccak256(bytes(username))];
     }
 
-    function tierCostUsd(uint8 tier) public view returns (uint256) {
-        if (tier > 4) revert InvalidTier();
-        return gameMath.tierCostUsd(tier);
-    }
-
-    function tierPower(uint8 tier) public view returns (uint32) {
-        if (tier > 4) revert InvalidTier();
-        return gameMath.tierPower(tier);
-    }
-
     function quoteTierUpgrade(address account, uint8 targetTier) public view returns (uint256) {
-        Player storage player = players[account];
+        ATMGameTypes.Player storage player = players[account];
         if (!player.joined || targetTier <= player.tier || targetTier > 4) revert InvalidTier();
-        return oracle.quoteGangsterForUsd(tierCostUsd(targetTier) - tierCostUsd(player.tier));
+        return oracle.quoteEthForUsd(
+            gameMath.tierCostUsd(targetTier) - gameMath.tierCostUsd(player.tier)
+        );
     }
 
-    function upgradeTier(uint8 targetTier, uint256 maxGangsterAmount)
+    function upgradeTier(uint8 targetTier, uint256 maxEthAmount)
         external
+        payable
         nonReentrant
         whenNotPaused
         onlyActiveMember
     {
         _updatePlayer(msg.sender);
-        Player storage player = players[msg.sender];
+        ATMGameTypes.Player storage player = players[msg.sender];
         uint256 amount = quoteTierUpgrade(msg.sender, targetTier);
-        if (amount > maxGangsterAmount) revert SlippageExceeded(amount, maxGangsterAmount);
+        if (amount > maxEthAmount) revert SlippageExceeded(amount, maxEthAmount);
+        if (msg.value < amount) revert InsufficientPayment(amount, msg.value);
 
-        _collectGangsterSpend(msg.sender, amount);
+        (bool sent,) = TREASURY.call{value: amount}("");
+        if (!sent) revert TransferFailed();
+        uint256 refund = msg.value - amount;
+        if (refund != 0) {
+            (bool refunded,) = payable(msg.sender).call{value: refund}("");
+            if (!refunded) revert TransferFailed();
+        }
+
         bool firstPaidGangster = !paidGangster[msg.sender];
         paidGangster[msg.sender] = true;
         if (firstPaidGangster) {
@@ -471,9 +393,9 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             codeBonusSlotGranted[msg.sender] = true;
             emit CodeBonusSlotUnlocked(msg.sender, gangsterSlots[msg.sender]);
         }
-        totalPower = totalPower - player.power + tierPower(targetTier);
+        totalPower = totalPower - player.power + gameMath.tierPower(targetTier);
         player.tier = targetTier;
-        player.power = tierPower(targetTier);
+        player.power = gameMath.tierPower(targetTier);
         _syncRewardDebt(player);
         emit TierUpgraded(msg.sender, targetTier, player.power, amount);
     }
@@ -514,7 +436,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     }
 
     function pendingRewards(address account) external view returns (uint256) {
-        Player storage player = players[account];
+        ATMGameTypes.Player storage player = players[account];
         if (!_hasLiveAccess(account)) return player.unclaimed;
         uint256 currentAccumulator = accRewardPerPower;
         uint256 applicableTime = block.timestamp < rewardPeriodFinish ? block.timestamp : rewardPeriodFinish;
@@ -636,8 +558,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
 
     function atmWinChanceForPower(uint32 power, uint8 atmIndex) public view returns (uint32) {
         if (atmIndex >= 4) revert InvalidAction();
-        if (power == 135 && atmIndex == 0) return 48_000_000;
-        ATMConfig memory config = atms[atmIndex];
+        ATMGameTypes.ATMConfig memory config = atms[atmIndex];
         return gameMath.atmWinChance(
             power, atmIndex, config.civilianChanceE8, config.maximumChanceE8
         );
@@ -653,7 +574,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             revert InvalidAction();
         }
         if (block.timestamp < layLowUntil[target]) revert InvalidAction();
-        if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
+        if (pendingActions[msg.sender].kind != ATMGameTypes.ActionKind.None) revert PendingActionExists();
         uint256 availableAt = playerAttackAvailableAt[msg.sender][target];
         if (availableAt > block.timestamp) revert CooldownActive(availableAt);
 
@@ -664,7 +585,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         }
 
         requestId = _storePendingAction(
-            ActionKind.PlayerRobbery,
+            ATMGameTypes.ActionKind.PlayerRobbery,
             target,
             commitment,
             0,
@@ -682,18 +603,18 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         returns (bytes32 requestId)
     {
         if (atmIndex >= 4 || commitment == bytes32(0)) revert InvalidAction();
-        if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
+        if (pendingActions[msg.sender].kind != ATMGameTypes.ActionKind.None) revert PendingActionExists();
         uint256 availableAt = atmAvailableAt[msg.sender][atmIndex];
         if (availableAt > block.timestamp) revert CooldownActive(availableAt);
 
         _updatePlayer(msg.sender);
-        ATMConfig memory config = atms[atmIndex];
+        ATMGameTypes.ATMConfig memory config = atms[atmIndex];
         uint256 lossAmount = oracle.quoteGangsterForUsd(config.lossUsdE18);
         uint256 rewardAmount = oracle.quoteGangsterForUsd(config.rewardUsdE18);
         if (players[msg.sender].unclaimed < lossAmount) revert InsufficientUnclaimed();
         uint256 reservedFromAtmPool = _reserveAtmReward(atmIndex, rewardAmount);
         requestId = _storePendingAction(
-            ActionKind.ATMHit,
+            ATMGameTypes.ActionKind.ATMHit,
             address(0),
             commitment,
             atmIndex,
@@ -716,7 +637,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             target == address(0) || snitchAvailableUntil[msg.sender] < block.timestamp
                 || commitment == bytes32(0)
         ) revert InvalidAction();
-        if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
+        if (pendingActions[msg.sender].kind != ATMGameTypes.ActionKind.None) revert PendingActionExists();
 
         uint256 cost = snitchCost();
         if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
@@ -725,7 +646,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         delete snitchAvailableUntil[msg.sender];
 
         requestId =
-            _storePendingAction(ActionKind.Snitch, target, commitment, 0, cost, 0, 0);
+            _storePendingAction(ATMGameTypes.ActionKind.Snitch, target, commitment, 0, cost, 0, 0);
     }
 
     function commitJailPurchase(uint8 item, bytes32 commitment, uint256 maxGangsterAmount)
@@ -738,13 +659,13 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         if (block.timestamp >= jailedUntil[msg.sender] || item != 0 || commitment == bytes32(0)) {
             revert InvalidAction();
         }
-        if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
+        if (pendingActions[msg.sender].kind != ATMGameTypes.ActionKind.None) revert PendingActionExists();
         uint256 cost = jailItemCost(item);
         if (cost > maxGangsterAmount) revert SlippageExceeded(cost, maxGangsterAmount);
         _collectGangsterSpend(msg.sender, cost);
 
         requestId = _storePendingAction(
-            ActionKind.JailShop, address(0), commitment, item, cost, 0, 0
+            ATMGameTypes.ActionKind.JailShop, address(0), commitment, item, cost, 0, 0
         );
     }
 
@@ -759,11 +680,11 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
             block.timestamp >= jailedUntil[msg.sender] || jailPhones[msg.sender] == 0
                 || target == address(0) || commitment == bytes32(0)
         ) revert InvalidAction();
-        if (pendingActions[msg.sender].kind != ActionKind.None) revert PendingActionExists();
+        if (pendingActions[msg.sender].kind != ATMGameTypes.ActionKind.None) revert PendingActionExists();
         jailPhones[msg.sender]--;
 
         requestId = _storePendingAction(
-            ActionKind.PhoneHit,
+            ATMGameTypes.ActionKind.PhoneHit,
             target,
             commitment,
             0,
@@ -773,41 +694,14 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         );
     }
 
-    function _storePendingAction(
-        ActionKind kind,
-        address target,
-        bytes32 commitment,
-        uint8 atmIndex,
-        uint256 forfeiture,
-        uint256 reservedReward,
-        uint256 reservedAtmPool
-    ) internal returns (bytes32 requestId) {
-        uint64 nonce = ++actionNonces[msg.sender];
-        requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
-        pendingActions[msg.sender] = PendingAction({
-            kind: kind,
-            target: target,
-            commitment: commitment,
-            resolver: randomnessResolver.resolver(),
-            committedAt: uint64(block.timestamp),
-            expiresAt: uint64(block.timestamp + ACTION_TIMEOUT),
-            nonce: nonce,
-            atmIndex: atmIndex,
-            forfeiture: forfeiture,
-            reservedReward: reservedReward,
-            reservedAtmPool: reservedAtmPool
-        });
-        emit ActionCommitted(requestId, msg.sender, kind, target, atmIndex, nonce);
-    }
-
     function revealAction(
         bytes32 secret,
         uint256 randomWord,
         uint64 deadline,
         bytes calldata resolverSignature
     ) external nonReentrant whenNotPaused onlyActiveMember {
-        PendingAction memory action = pendingActions[msg.sender];
-        if (action.kind == ActionKind.None) revert NoPendingAction();
+        ATMGameTypes.PendingAction memory action = pendingActions[msg.sender];
+        if (action.kind == ATMGameTypes.ActionKind.None) revert NoPendingAction();
         if (block.timestamp < uint256(action.committedAt) + MIN_REVEAL_DELAY) revert RevealTooEarly();
         if (block.timestamp > action.expiresAt) revert RevealExpired();
         if (deadline < block.timestamp || deadline > action.expiresAt) {
@@ -831,188 +725,131 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         bytes32 entropy = keccak256(abi.encodePacked(secret, randomWord, requestId));
         delete pendingActions[msg.sender];
 
-        if (action.kind == ActionKind.PlayerRobbery) {
-            _settlePlayerRobbery(requestId, msg.sender, action.target, uint256(entropy));
-        } else if (action.kind == ActionKind.ATMHit) {
-            _settleATMHit(requestId, msg.sender, action, uint256(entropy));
-        } else if (action.kind == ActionKind.Snitch) {
-            _settleSnitch(msg.sender, action.target, action.forfeiture, uint256(entropy));
-        } else if (action.kind == ActionKind.JailShop) {
-            _settleJailPurchase(msg.sender, action.atmIndex, action.forfeiture, uint256(entropy));
+        if (action.kind == ATMGameTypes.ActionKind.PlayerRobbery) {
+            _updatePlayer(msg.sender);
+            _updatePlayer(action.target);
+            bonusPool = ATMGameCombat.settlePlayerRobbery(
+                players,
+                snitchTarget,
+                snitchAvailableUntil,
+                snitchLoot,
+                lockedRobberyLoot,
+                robberyLootUnlockAt,
+                unclaimedSince,
+                reservedAtmClaimPools,
+                gameMath,
+                requestId,
+                msg.sender,
+                action.target,
+                uint256(entropy),
+                bonusPool,
+                reservedBonusPool,
+                totalAtmClaimPool
+            );
+        } else if (action.kind == ATMGameTypes.ActionKind.ATMHit) {
+            _updatePlayer(msg.sender);
+            (bonusPool, reservedBonusPool, totalAtmClaimPool) = ATMGameCombat.settleATMHit(
+                players,
+                unclaimedSince,
+                atmClaimPools,
+                reservedAtmClaimPools,
+                gameMath,
+                atms[action.atmIndex],
+                requestId,
+                msg.sender,
+                action,
+                uint256(entropy),
+                bonusPool,
+                reservedBonusPool,
+                totalAtmClaimPool,
+                GANGSTER,
+                BURN_ADDRESS
+            );
+        } else if (action.kind == ATMGameTypes.ActionKind.Snitch) {
+            _updatePlayer(action.target);
+            ATMGameCombat.settleSnitch(
+                jailedUntil,
+                jailHitTarget,
+                jailLostLoot,
+                jailIncidentAt,
+                snitchLoot,
+                msg.sender,
+                action.target,
+                action.forfeiture,
+                uint256(entropy)
+            );
+        } else if (action.kind == ATMGameTypes.ActionKind.JailShop) {
+            ATMGameCombat.settleJailPurchase(
+                jailedUntil, jailPhones, msg.sender, action.atmIndex, action.forfeiture, uint256(entropy)
+            );
         } else {
-            _settlePhoneHit(msg.sender, action, uint256(entropy));
+            _updatePlayer(action.target);
+            ATMGameCombat.settlePhoneHit(
+                players,
+                unclaimedSince,
+                jailHitTarget,
+                jailLostLoot,
+                jailIncidentAt,
+                msg.sender,
+                action,
+                uint256(entropy)
+            );
         }
     }
 
     function forfeitExpiredAction(address attacker) external nonReentrant {
-        PendingAction memory action = pendingActions[attacker];
-        if (action.kind == ActionKind.None) revert NoPendingAction();
+        ATMGameTypes.PendingAction memory action = pendingActions[attacker];
+        if (action.kind == ATMGameTypes.ActionKind.None) revert NoPendingAction();
         if (block.timestamp <= action.expiresAt) revert RevealTooEarly();
-        delete pendingActions[attacker];
 
         _updatePlayer(attacker);
-        uint256 penalty =
-            action.kind == ActionKind.Snitch || action.kind == ActionKind.JailShop
-                || action.kind == ActionKind.PhoneHit
-            ? 0
-            : action.forfeiture < players[attacker].unclaimed
-                ? action.forfeiture
-                : players[attacker].unclaimed;
-        _subtractUnclaimed(attacker, penalty);
-
-        if (action.kind == ActionKind.PlayerRobbery && action.target != address(0)) {
+        if (
+            action.kind == ATMGameTypes.ActionKind.PlayerRobbery && action.target != address(0)
+        ) {
             _updatePlayer(action.target);
-            _addUnclaimed(action.target, penalty);
-            players[action.target].lifetimeEarned += penalty;
-        } else if (action.kind == ActionKind.ATMHit) {
-            reservedBonusPool -= action.reservedReward;
-            reservedAtmClaimPools[action.atmIndex] -= action.reservedAtmPool;
-            if (penalty != 0) GANGSTER.safeTransfer(BURN_ADDRESS, penalty);
         }
 
-        bytes32 requestId =
-            keccak256(abi.encodePacked(block.chainid, address(this), attacker, action.nonce));
-        emit ActionForfeited(requestId, attacker, penalty);
-    }
-
-    function _settlePlayerRobbery(bytes32 requestId, address attacker, address target, uint256 entropy)
-        internal
-    {
-        _updatePlayer(attacker);
-        _updatePlayer(target);
-        (uint16 chanceBps, uint16 stealBps, uint16 lossBps) =
-            robberyProfile(players[attacker].power, players[target].power);
-        bool won = entropy % BPS < chanceBps;
-        uint256 amount;
-        uint256 referralBonus;
-
-        if (won) {
-            amount = (players[target].unclaimed * stealBps) / BPS;
-            _subtractUnclaimed(target, amount);
-            _addUnclaimed(attacker, amount);
-
-            uint256 bonusRate = players[attacker].directReferrals * 250;
-            if (bonusRate > 2_500) bonusRate = 2_500;
-            uint256 requestedBonus = (amount * bonusRate) / BPS;
-            uint256 committed =
-                totalAtmClaimPool + reservedBonusPool - _reservedAtmPoolTotal();
-            uint256 availableBonus = bonusPool > committed ? bonusPool - committed : 0;
-            referralBonus = requestedBonus < availableBonus ? requestedBonus : availableBonus;
-            if (referralBonus != 0) {
-                bonusPool -= referralBonus;
-                _addUnclaimed(attacker, referralBonus);
-            }
-            players[attacker].lifetimeEarned += amount + referralBonus;
-            if (players[attacker].power > players[target].power) {
-                snitchTarget[target] = attacker;
-                snitchAvailableUntil[target] = block.timestamp + SNITCH_WINDOW;
-                snitchLoot[target] = amount;
-            }
-        } else {
-            amount = (players[attacker].unclaimed * lossBps) / BPS;
-            _subtractUnclaimed(attacker, amount);
-            _addUnclaimed(target, amount);
-            players[target].lifetimeEarned += amount;
-            if (block.timestamp >= robberyLootUnlockAt[target]) lockedRobberyLoot[target] = 0;
-            lockedRobberyLoot[target] += amount;
-            robberyLootUnlockAt[target] = block.timestamp + 30 minutes;
-        }
-
-        emit PlayerRobberySettled(
-            requestId, attacker, target, won, amount, referralBonus, chanceBps
+        (
+            ,
+            uint256 reservedRewardRefund,
+            uint8 atmIndex,
+            uint256 reservedAtmPoolRefund,
+            ATMGameTypes.ActionKind kind,
+        ) = ATMGameCombat.forfeitExpired(
+            pendingActions, players, unclaimedSince, attacker, GANGSTER, BURN_ADDRESS
         );
-    }
 
-    function _settleATMHit(bytes32 requestId, address attacker, PendingAction memory action, uint256 entropy)
-        internal
-    {
-        _updatePlayer(attacker);
-        uint32 chanceE8 = atmWinChanceForPower(players[attacker].power, action.atmIndex);
-        bool won = entropy % CHANCE_PRECISION < chanceE8;
-        reservedBonusPool -= action.reservedReward;
-        reservedAtmClaimPools[action.atmIndex] -= action.reservedAtmPool;
-
-        uint256 amount;
-        if (won) {
-            amount = action.reservedReward;
-            bonusPool -= amount;
-            if (action.reservedAtmPool != 0) {
-                atmClaimPools[action.atmIndex] -= action.reservedAtmPool;
-                totalAtmClaimPool -= action.reservedAtmPool;
-            }
-            _addUnclaimed(attacker, amount);
-            players[attacker].lifetimeEarned += amount;
-        } else {
-            amount = action.forfeiture < players[attacker].unclaimed
-                ? action.forfeiture
-                : players[attacker].unclaimed;
-            _subtractUnclaimed(attacker, amount);
-            if (amount != 0) GANGSTER.safeTransfer(BURN_ADDRESS, amount);
+        if (kind == ATMGameTypes.ActionKind.ATMHit) {
+            reservedBonusPool -= reservedRewardRefund;
+            reservedAtmClaimPools[atmIndex] -= reservedAtmPoolRefund;
         }
-        emit ATMHitSettled(requestId, attacker, action.atmIndex, won, amount, chanceE8);
     }
 
-    function _settleSnitch(address informant, address target, uint256 cost, uint256 entropy) internal {
-        bool jailed = entropy % BPS < SNITCH_CHANCE_BPS;
-        if (jailed) {
-            _updatePlayer(target);
-            jailedUntil[target] = block.timestamp + JAIL_DURATION;
-            jailHitTarget[target] = informant;
-            jailLostLoot[target] = snitchLoot[informant];
-            jailIncidentAt[target] = block.timestamp;
-        }
-        emit SnitchSettled(informant, target, jailed, cost);
-    }
-
-    function _settleJailPurchase(address inmate, uint8 item, uint256 cost, uint256 entropy) internal {
-        uint256 roll = entropy % BPS;
-        uint8 outcome;
-        if (roll < 5_000) {
-            jailPhones[inmate]++;
-            outcome = 0;
-        } else if (roll < 7_500) {
-            uint256 remaining = jailedUntil[inmate] > block.timestamp
-                ? jailedUntil[inmate] - block.timestamp
-                : 0;
-            jailedUntil[inmate] = block.timestamp + remaining * 2;
-            outcome = 1;
-        } else {
-            outcome = 2;
-        }
-        emit JailPurchaseSettled(inmate, item, outcome, cost, jailedUntil[inmate]);
-    }
-
-    function _settlePhoneHit(address inmate, PendingAction memory action, uint256 entropy) internal {
-        bool won = entropy % BPS < 5_000;
-        uint256 elapsedMinutes = block.timestamp > action.reservedReward
-            ? (block.timestamp - action.reservedReward) / 1 minutes
-            : 0;
-        uint16 recoveryBps = elapsedMinutes < 60
-            ? uint16(8_000 - ((elapsedMinutes * 8_000) / 60))
-            : 0;
-        uint256 recovered;
-        if (won) {
-            _updatePlayer(action.target);
-            recovered = (action.forfeiture * recoveryBps) / BPS;
-            if (recovered > players[action.target].unclaimed) {
-                recovered = players[action.target].unclaimed;
-            }
-            _subtractUnclaimed(action.target, recovered);
-            _addUnclaimed(inmate, recovered);
-            players[inmate].lifetimeEarned += recovered;
-        }
-        delete jailHitTarget[inmate];
-        delete jailLostLoot[inmate];
-        delete jailIncidentAt[inmate];
-        emit PhoneHitSettled(inmate, action.target, won, recovered, recoveryBps);
-    }
-
-    function robberyProfile(uint32 attackerPower, uint32 targetPower)
-        public
-        view
-        returns (uint16 chanceBps, uint16 stealBps, uint16 lossBps)
-    {
-        return gameMath.robberyProfile(attackerPower, targetPower);
+    function _storePendingAction(
+        ATMGameTypes.ActionKind kind,
+        address target,
+        bytes32 commitment,
+        uint8 atmIndex,
+        uint256 forfeiture,
+        uint256 reservedReward,
+        uint256 reservedAtmPool
+    ) internal returns (bytes32 requestId) {
+        uint64 nonce = ++actionNonces[msg.sender];
+        requestId = keccak256(abi.encodePacked(block.chainid, address(this), msg.sender, nonce));
+        pendingActions[msg.sender] = ATMGameTypes.PendingAction({
+            kind: kind,
+            target: target,
+            commitment: commitment,
+            resolver: randomnessResolver.resolver(),
+            committedAt: uint64(block.timestamp),
+            expiresAt: uint64(block.timestamp + ACTION_TIMEOUT),
+            nonce: nonce,
+            atmIndex: atmIndex,
+            forfeiture: forfeiture,
+            reservedReward: reservedReward,
+            reservedAtmPool: reservedAtmPool
+        });
+        emit ActionCommitted(requestId, msg.sender, kind, target, atmIndex, nonce);
     }
 
     function _updateGlobal() internal {
@@ -1028,7 +865,7 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
     function _updatePlayer(address account) internal {
         uint256 accrualStartedAt = playerRewardUpdatedAt[account];
         _updateGlobal();
-        Player storage player = players[account];
+        ATMGameTypes.Player storage player = players[account];
         if (player.power != 0) {
             uint256 accumulated = (uint256(player.power) * accRewardPerPower) / ACC_REWARD_PRECISION;
             uint256 newlyEarned;
@@ -1062,29 +899,27 @@ contract ATMGame is Ownable2Step, ReentrancyGuard {
         }
     }
 
-    function _syncRewardDebt(Player storage player) internal {
+    function _syncRewardDebt(ATMGameTypes.Player storage player) internal {
         player.rewardDebt = (uint256(player.power) * accRewardPerPower) / ACC_REWARD_PRECISION;
     }
 
     function _addUnclaimed(address account, uint256 amount) internal {
         if (amount == 0) return;
-        Player storage player = players[account];
+        ATMGameTypes.Player storage player = players[account];
         if (player.unclaimed == 0) unclaimedSince[account] = block.timestamp;
         player.unclaimed += amount;
     }
 
     function _subtractUnclaimed(address account, uint256 amount) internal {
         if (amount == 0) return;
-        Player storage player = players[account];
+        ATMGameTypes.Player storage player = players[account];
         player.unclaimed -= amount;
         if (player.unclaimed == 0) unclaimedSince[account] = 0;
     }
 
     function _allocateClaimFee(uint256 amount) internal {
-        uint256 cornerStore = amount / 25;
-        uint256 nightclub = (amount * 2) / 25;
-        uint256 casinoFloor = (amount * 4) / 25;
-        uint256 downtownVault = amount - cornerStore - nightclub - casinoFloor;
+        (uint256 cornerStore, uint256 nightclub, uint256 casinoFloor, uint256 downtownVault) =
+            gameMath.claimFeeSplits(amount);
         atmClaimPools[0] += cornerStore;
         atmClaimPools[1] += nightclub;
         atmClaimPools[2] += casinoFloor;

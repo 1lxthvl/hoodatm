@@ -1,6 +1,6 @@
 import { Sword, Shield } from "lucide-react";
 import { PixelGangster } from "./pixel-gangster";
-import { GangsterUsdAmount } from "./gangster-price-provider";
+import { EthUsdAmount } from "./gangster-price-provider";
 
 function BandanaIcon() {
   return (
@@ -61,7 +61,7 @@ export function GangsterCard({
             </div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-2"><Shield className="h-4 w-4" /> Cost</span>
-              <GangsterUsdAmount usd={costUsd} className="text-right font-semibold text-white" />
+              <EthUsdAmount usd={costUsd} className="text-right font-semibold text-white" />
             </div>
             <p className="text-sm leading-6 text-slate-300">{description}</p>
           </div>

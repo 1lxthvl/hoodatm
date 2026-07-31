@@ -60,14 +60,21 @@ export function GangsterUsdAmount({
   prefix = "",
   className = "",
   compact = false,
+  showEth = true,
 }: {
   usd: number;
   prefix?: string;
   className?: string;
   compact?: boolean;
+  /** Append live ETH-equivalent of the USD amount (join-style pricing). */
+  showEth?: boolean;
 }) {
   const { price, loading } = useGangsterPrice();
   const amount = price ? usd / price.gangsterUsd : null;
+  const ethAmount = price && price.ethUsd > 0 ? usd / price.ethUsd : null;
+  const ethLabel = ethAmount === null
+    ? null
+    : `${ethAmount < 0.001 ? ethAmount.toFixed(6) : ethAmount.toFixed(4)} ETH`;
 
   return (
     <span className={className} title={price?.source}>
@@ -75,8 +82,35 @@ export function GangsterUsdAmount({
       {amount === null
         ? loading ? "Loading live quote…" : "Quote unavailable"
         : compact
-          ? `~${new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(amount)} $GANGSTER`
-          : `${new Intl.NumberFormat("en-US", { maximumFractionDigits: amount >= 1000 ? 0 : 2 }).format(amount)} $GANGSTER · $${usd.toFixed(usd < 0.01 ? 3 : 2)}`}
+          ? `~${new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(amount)} $GANGSTER${showEth && ethLabel ? ` · ~${ethLabel}` : ""}`
+          : `${new Intl.NumberFormat("en-US", { maximumFractionDigits: amount >= 1000 ? 0 : 2 }).format(amount)} $GANGSTER · $${usd.toFixed(usd < 0.01 ? 3 : 2)}${showEth && ethLabel ? ` · ~${ethLabel}` : ""}`}
+    </span>
+  );
+}
+
+/** Live ETH quote for USD-priced payments (join + tier upgrades). */
+export function EthUsdAmount({
+  usd,
+  prefix = "",
+  className = "",
+  compact = false,
+}: {
+  usd: number;
+  prefix?: string;
+  className?: string;
+  compact?: boolean;
+}) {
+  const { price, loading } = useGangsterPrice();
+  const ethAmount = price && price.ethUsd > 0 ? usd / price.ethUsd : null;
+
+  return (
+    <span className={className} title={price?.source}>
+      {prefix}
+      {ethAmount === null
+        ? loading ? "Loading live quote…" : "Quote unavailable"
+        : compact
+          ? `~${ethAmount < 0.001 ? ethAmount.toFixed(6) : ethAmount.toFixed(4)} ETH`
+          : `${ethAmount < 0.001 ? ethAmount.toFixed(6) : ethAmount.toFixed(4)} ETH · $${usd.toFixed(usd < 0.01 ? 3 : 2)}`}
     </span>
   );
 }

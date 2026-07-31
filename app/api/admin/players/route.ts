@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { isAddress } from "viem";
 import { isAdminUsername } from "../../../lib/admin-access";
+import { markCodeGrantedOnChain } from "../../../lib/onchain-code-grant";
 import { readXSession } from "../../../lib/x-session";
 import {
   listTrackedPlayers,
@@ -92,9 +93,22 @@ export async function PATCH(request: Request) {
       return Response.json({ error: "Invalid gangster character" }, { status: 400 });
     }
     const player = await updatePlayerCharacter(body.id, body.characterGrant ?? null);
-    return player
-      ? Response.json({ player })
-      : Response.json({ error: "Player not found" }, { status: 404 });
+    if (!player) return Response.json({ error: "Player not found" }, { status: 404 });
+    let onchainGrant: Awaited<ReturnType<typeof markCodeGrantedOnChain>> | null = null;
+    if (player.wallet && body.characterGrant) {
+      try {
+        onchainGrant = await markCodeGrantedOnChain(
+          player.wallet,
+          body.characterGrant as GangsterCharacter,
+        );
+      } catch (error) {
+        onchainGrant = {
+          skipped: true,
+          reason: error instanceof Error ? error.message : "onchain-grant-failed",
+        };
+      }
+    }
+    return Response.json({ player, onchainGrant });
   }
 
   if (

@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { isAddress } from "viem";
 import { AccessCodeUnavailable, redeemAccessCode } from "../../lib/access-code-registry";
+import { markCodeGrantedOnChain } from "../../lib/onchain-code-grant";
 import {
   addPlayerGangster,
   findPlayerByWallet,
@@ -67,6 +68,15 @@ export async function POST(request: Request) {
       : player;
     const codeGranted = updatedPlayer?.gangsterRoster.some((gangster) => gangster.source === "code") ?? true;
     const hasPaidGangster = updatedPlayer?.gangsterRoster.some((gangster) => gangster.source === "paid") ?? false;
+    let onchainGrant: Awaited<ReturnType<typeof markCodeGrantedOnChain>> | null = null;
+    try {
+      onchainGrant = await markCodeGrantedOnChain(body.wallet, code.character);
+    } catch (error) {
+      onchainGrant = {
+        skipped: true,
+        reason: error instanceof Error ? error.message : "onchain-grant-failed",
+      };
+    }
     return Response.json({
       claimed: true,
       character: code.character,
@@ -75,6 +85,7 @@ export async function POST(request: Request) {
       slots: updatedPlayer?.gangsterSlots ?? 1,
       withdrawalEligible: !codeGranted || hasPaidGangster,
       codeBonusSlotGranted: updatedPlayer?.codeBonusSlotGranted ?? false,
+      onchainGrant,
     });
   } catch (error) {
     if (error instanceof AccessCodeUnavailable || error instanceof PlayerRegistryConflict) {

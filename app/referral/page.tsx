@@ -12,7 +12,7 @@ export default function ReferralPage() {
         </div>
         <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white">Bring your crew, stack extra $GANGSTER, and grow the hoodATM block.</h1>
         <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
-          Pass your code to trusted crew members. Every recorded referral adds 0.1× to your whitelist-points multiplier with no referral limit. Qualified members also add 2.5% to player-robbery loot, capped at 25%.
+          Pass your code to trusted crew members. Every recorded referral adds 0.1× to your OG-points multiplier with no referral limit. Qualified members also add 2.5% to player-robbery loot, capped at 25%.
         </p>
       </section>
 
@@ -29,7 +29,7 @@ export default function ReferralPage() {
               <p className="mt-2 text-sm text-slate-400">For a referred entry, the contract records 2.5% of the treasury deposit as the referral-pool allocation.</p>
             </li>
             <li className="rounded-3xl border border-white/10 bg-slate-900/60 p-4">
-              <p className="font-semibold text-white">Multiply whitelist points</p>
+              <p className="font-semibold text-white">Multiply OG points</p>
               <p className="mt-2 text-sm text-slate-400">One referral gives 1.1× points, two give 1.2×, three give 1.3×, and the multiplier keeps growing by 0.1× with every referral.</p>
             </li>
             <li className="rounded-3xl border border-white/10 bg-slate-900/60 p-4">
@@ -44,7 +44,7 @@ export default function ReferralPage() {
           <div className="mt-6 grid gap-4">
             {[
               { label: "Referral entry pool", value: "2.5% tracked from each referred entry" },
-              { label: "Whitelist points", value: "+0.1× per referral · unlimited" },
+              { label: "OG points", value: "+0.1× per referral · unlimited" },
               { label: "Per-member bonus", value: "+2.5% player-robbery loot" },
               { label: "Maximum bonus", value: "+25% robbery loot after 10 invites" },
               { label: "Hood effect", value: "More active hood power = more control over the hood treasury" },
@@ -83,7 +83,7 @@ export default function ReferralPage() {
           })}
         </div>
         <p className="mt-5 text-sm leading-6 text-slate-300">
-          After referral 10, robbery loot stays capped at +25%. Whitelist points keep scaling:
+          After referral 10, robbery loot stays capped at +25%. OG points keep scaling:
           referral 11 gives 2.1×, referral 20 gives 3.0×, and there is no referral ceiling.
         </p>
       </section>

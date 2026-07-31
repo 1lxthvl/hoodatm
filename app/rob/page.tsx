@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock3, Crosshair, Gavel, ShieldAlert, Siren, Swords, Target, WalletCards } from "lucide-react";
+import Link from "next/link";
+import { Clock3, Crosshair, Gavel, Share2, ShieldAlert, Siren, Swords, Target, Users, WalletCards } from "lucide-react";
 import { formatGangster, getRobProfile, useMockGang } from "../components/mock-gang-provider";
 
 function cooldownLabel(until: number, now: number) {
@@ -143,9 +144,20 @@ export default function RobPage() {
 
         <div className="mt-7 grid gap-4 lg:grid-cols-2">
           {targets.length === 0 ? (
-            <div className="rounded-[1.5rem] border border-dashed border-white/15 bg-white/[0.02] p-8 text-center lg:col-span-2">
-              <p className="font-bold text-white">No verified rivals yet.</p>
-              <p className="mt-2 text-sm text-slate-500">Eligible gang members will appear after they join and have an exposed balance.</p>
+            <div className="rounded-[1.5rem] border border-dashed border-red-300/25 bg-red-400/[0.05] p-8 text-center lg:col-span-2">
+              <Users className="mx-auto h-8 w-8 text-red-200" />
+              <p className="mt-4 text-xl font-black text-white">Empty block — bring a rival.</p>
+              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">
+                Robberies need exposed players. Share your crew link, drop a character code, or pull a friend into Season 1 so the floor fills up.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <Link href="/referral" className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-5 py-3 text-sm font-black text-[#10130c]">
+                  <Share2 className="h-4 w-4" /> Share referral link
+                </Link>
+                <Link href="/game" className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/35 px-5 py-3 text-sm font-bold text-white">
+                  Claim character code
+                </Link>
+              </div>
             </div>
           ) : null}
           {targets.map((target) => {

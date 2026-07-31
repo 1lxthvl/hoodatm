@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CircleDollarSign, Clock3, Coins, Flame, Play, ShieldCheck, Swords, TrendingUp, WalletCards } from "lucide-react";
+import { ArrowRight, CircleDollarSign, Clock3, Coins, Flame, Play, Share2, ShieldCheck, Swords, TrendingUp, WalletCards } from "lucide-react";
 import { AtmMachine } from "../components/atm-machine";
-import { atmTargets, formatGangster, getAtmChance, useMockGang } from "../components/mock-gang-provider";
+import { atmTargets, formatGangster, formatSessionGangster, getAtmChance, useMockGang } from "../components/mock-gang-provider";
 import { GangsterUsdAmount, useGangsterPrice } from "../components/gangster-price-provider";
 import { PixelGangster } from "../components/pixel-gangster";
+
+const ATM_POOL_NAMES = ["Corner Store ATM", "Nightclub ATM", "Casino Floor ATM", "Downtown Vault ATM"] as const;
 
 function elapsedLabel(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -57,29 +59,72 @@ export default function HustlePage() {
     heatLevel,
     heatMultiplier,
     isHustling,
+    liveHustleReady,
     hustleStartedAt,
     hustleAccumulatedMs,
     hustleStatePending,
     claimAvailableAt,
     claimTerms,
     atmPoolContributions,
+    hasJoinedGame,
     startHustling,
     layLow,
     transactionError,
+    layingLowUntil,
   } = useMockGang();
   const { price } = useGangsterPrice();
-  const [startingEarned] = useState(() => currentPlayer.earned);
+  const [sessionStartUnclaimed, setSessionStartUnclaimed] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [needsUsername, setNeedsUsername] = useState(false);
+  const gameLive = process.env.NEXT_PUBLIC_GAME_LIVE === "true";
+  const totalAtmPools = atmPoolContributions.reduce((sum, value) => sum + value, 0);
+  const hoursToZeroFee = Math.max(0, 10 - claimTerms.heldHours);
+  const claimTension = currentPlayer.unclaimed > 0
+    ? hoursToZeroFee > 0
+      ? `Claim now @ ${claimTerms.feeBps / 100}% ATM fee · wait ${hoursToZeroFee}h more → 0% fee`
+      : `Fee cleared · wait bonus +${claimTerms.bonusBps / 100}% (caps at +20% after 20h)`
+    : "Start hustling to build unclaimed $GANGSTER, then decide: claim now or wait for lower fees.";
 
-  const sessionEarned = Math.max(0, currentPlayer.earned - startingEarned);
+  useEffect(() => {
+    const stored = (window.localStorage.getItem("hoodatm_username") || "").trim();
+    setNeedsUsername(stored.length < 3);
+  }, [lastClaim]);
+
+  useEffect(() => {
+    if (!isHustling) {
+      setSessionStartUnclaimed(null);
+      return;
+    }
+    if (!liveHustleReady && process.env.NEXT_PUBLIC_GAME_LIVE === "true") return;
+    if (sessionStartUnclaimed === null) {
+      setSessionStartUnclaimed(currentPlayer.unclaimed);
+    }
+  }, [isHustling, liveHustleReady, sessionStartUnclaimed, currentPlayer.unclaimed]);
+
+  const sessionEarned = sessionStartUnclaimed === null
+    ? 0
+    : Math.max(0, currentPlayer.unclaimed - sessionStartUnclaimed);
   const withdrawalCooldown = withdrawalAvailableAt - currentTime;
   const withdrawalLocked = withdrawalAvailableAt > 0 && (currentTime === 0 || withdrawalCooldown > 0);
   const claimCooldown = claimAvailableAt - currentTime;
   const claimLocked = claimAvailableAt > 0 && (currentTime === 0 || claimCooldown > 0);
+  const layingLowActive = layingLowUntil > 0
+    && layingLowUntil < Number.MAX_SAFE_INTEGER
+    && currentTime > 0
+    && layingLowUntil > currentTime;
+  const layLowRemainingMs = layingLowActive ? layingLowUntil - currentTime : 0;
   const activeHustleMs = isHustling && hustleStartedAt > 0 && currentTime > 0
     ? Math.max(0, currentTime - hustleStartedAt)
     : 0;
-  const totalHustleMs = hustleAccumulatedMs + activeHustleMs;
+  // Current earning streak only — resets on lay low / jail / not earning, never on refresh.
+  const totalHustleMs = activeHustleMs;
+  const hustleButtonLabel = hustleStatePending && !isHustling
+    ? "Starting…"
+    : layingLowActive
+      ? `Resumes in ${cooldownLabel(layLowRemainingMs)}`
+      : isHustling
+        ? "Hustling active"
+        : "Start hustling";
   const characterType = currentPlayer.rank === "Captain"
     ? "captain"
     : currentPlayer.rank === "General"
@@ -108,16 +153,38 @@ export default function HustlePage() {
             </div>
             <h1 className="mt-5 text-4xl font-black tracking-tight text-white sm:text-5xl">Put your power to work.</h1>
             <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
-              Start hustling to stack unclaimed $GANGSTER based on your crew&apos;s share of total block power. Lay low whenever you want to pause earnings, cool your heat, and stay protected from robberies.
+              Once you join, rewards accrue on-chain automatically. Lay low to pause earnings, cool heat, and stay protected from robberies. Accrual resumes when the lay-low timer ends.
             </p>
+            <div className="mt-5 grid max-w-xl gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-lime-300/25 bg-lime-300/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-lime-200/80">Earning now</p>
+                <p className="mt-1 text-2xl font-black text-lime-200">{formatGangster(idleRewardPerHour)}/hr</p>
+                <p className="mt-1 text-sm font-semibold text-slate-400">{usdValue(idleRewardPerHour, price?.gangsterUsd)}/hr</p>
+              </div>
+              <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-100/80">Unclaimed</p>
+                <p className="mt-1 text-2xl font-black text-amber-100">{formatGangster(currentPlayer.unclaimed)}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-400">{usdValue(currentPlayer.unclaimed, price?.gangsterUsd)}</p>
+              </div>
+            </div>
+            {gameLive && !hasJoinedGame ? (
+              <div className="mt-5 max-w-2xl rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4">
+                <p className="font-bold text-amber-100">Join first to start the earn clock.</p>
+                <p className="mt-1 text-sm text-slate-300">Pay the $5 ETH initiation, keep $5 in $GANGSTER, then come back here for your first claim.</p>
+                <Link href="/create" className="mt-3 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 via-amber-400 to-lime-300 px-5 py-2.5 text-sm font-black text-[#10130c]">
+                  Start mobbin&apos; <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            ) : null}
+            <p className="mt-4 max-w-2xl text-sm font-semibold leading-6 text-lime-100/90">{claimTension}</p>
             <div className="mt-7 flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() => void startHustling()}
-                disabled={isHustling || hustleStatePending}
+                disabled={isHustling || hustleStatePending || layingLowActive || (gameLive && !hasJoinedGame)}
                 className="inline-flex items-center gap-2 rounded-full bg-amber-300 px-6 py-3 font-bold text-[#10130c] transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Play className="h-4 w-4" /> {hustleStatePending && !isHustling ? "Starting…" : isHustling ? "Hustling active" : "Start hustling"}
+                <Play className="h-4 w-4" /> {hustleButtonLabel}
               </button>
               <button
                 type="button"
@@ -126,7 +193,7 @@ export default function HustlePage() {
                 className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-6 py-3 font-bold text-[#10130c] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Coins className="h-4 w-4" /> {pendingAction === "Claim"
-                  ? "Claimingâ€¦"
+                  ? "Claiming…"
                   : claimLocked
                     ? `Claim in ${cooldownLabel(claimCooldown)}`
                   : currentPlayer.unclaimed <= 0
@@ -155,10 +222,10 @@ export default function HustlePage() {
               <button
                 type="button"
                 onClick={() => void layLow()}
-                disabled={!isHustling || hustleStatePending}
+                disabled={!isHustling || hustleStatePending || heatLevel <= 0 || layingLowActive}
                 className="inline-flex items-center gap-2 rounded-full border border-red-300/25 bg-red-400/10 px-5 py-3 font-semibold text-red-100 transition hover:bg-red-400/15 disabled:opacity-45"
               >
-                <Flame className="h-4 w-4" /> {hustleStatePending && isHustling ? "Laying low…" : "Lay low"}
+                <Flame className="h-4 w-4" /> {hustleStatePending && isHustling ? "Laying low…" : heatLevel <= 0 ? "Need heat to lay low" : "Lay low"}
               </button>
             </div>
             <div className="mt-4 max-w-2xl rounded-2xl border border-white/10 bg-black/30 p-4 text-sm leading-6 text-slate-300">
@@ -190,7 +257,11 @@ export default function HustlePage() {
           <div className="relative flex min-h-[380px] items-center justify-center rounded-[1.75rem] border border-lime-300/35 bg-black/40 p-6 shadow-[0_0_55px_rgba(163,230,53,.16)]">
             <div className="absolute left-5 top-5 inline-flex items-center gap-2 rounded-full border border-lime-300/30 bg-lime-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-lime-200">
               <span className={`h-2 w-2 rounded-full ${isHustling ? "animate-pulse bg-lime-300" : "bg-orange-300"}`} />
-              {isHustling ? "Hustle active" : "Laying low"}
+              {layingLowActive
+                ? `Laying low · ${cooldownLabel(layLowRemainingMs)}`
+                : isHustling
+                  ? "Hustle active"
+                  : "Not hustling"}
             </div>
             <div className="relative flex flex-col items-center">
               <div className={`rounded-[2rem] border p-3 shadow-2xl ${isHustling ? "border-lime-300/35 bg-lime-300/10 animate-atm-glow" : "border-orange-300/25 bg-orange-300/[0.07]"}`}>
@@ -200,7 +271,7 @@ export default function HustlePage() {
             </div>
             <div className="absolute inset-x-5 bottom-5 rounded-2xl border border-white/10 bg-black/65 p-4 backdrop-blur-sm">
               <div className="flex items-center justify-between">
-                <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">This session</p><p className="mt-1 text-2xl font-black text-lime-300">+{formatGangster(sessionEarned)}</p></div>
+                <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">This session</p><p className="mt-1 text-2xl font-black text-lime-300">+{formatSessionGangster(sessionEarned)}</p></div>
                 <div className="text-right"><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Hustling for</p><p className="mt-1 font-mono text-2xl font-black text-amber-200">{elapsedLabel(totalHustleMs)}</p></div>
               </div>
             </div>
@@ -209,25 +280,58 @@ export default function HustlePage() {
       </section>
 
       {lastClaim && (
-        <section className="grid gap-3 rounded-2xl border border-lime-300/20 bg-lime-300/[0.06] p-4 sm:grid-cols-2 xl:grid-cols-5">
-          <p className="text-sm text-slate-400">Claimed <span className="ml-2 font-bold text-white">{formatGangster(lastClaim.gross)}</span></p>
-          <p className="text-sm text-slate-400">Burned 10% <span className="ml-2 font-bold text-red-300">{formatGangster(lastClaim.burned)}</span></p>
-          <p className="text-sm text-slate-400">ATM fee {lastClaim.feeBps / 100}% <span className="ml-2 font-bold text-amber-200">{formatGangster(lastClaim.fee)}</span></p>
-          <p className="text-sm text-slate-400">Wait bonus {lastClaim.bonusBps / 100}% <span className="ml-2 font-bold text-cyan-200">+{formatGangster(lastClaim.bonus)}</span></p>
-          <p className="text-sm text-slate-400">Added to game wallet <span className="ml-2 font-bold text-lime-300">{formatGangster(lastClaim.received)}</span></p>
+        <section className="space-y-3">
+          <div className="grid gap-3 rounded-2xl border border-lime-300/20 bg-lime-300/[0.06] p-4 sm:grid-cols-2 xl:grid-cols-5">
+            <p className="text-sm text-slate-400">Claimed <span className="ml-2 font-bold text-white">{formatGangster(lastClaim.gross)}</span></p>
+            <p className="text-sm text-slate-400">Burned 10% <span className="ml-2 font-bold text-red-300">{formatGangster(lastClaim.burned)}</span></p>
+            <p className="text-sm text-slate-400">ATM fee {lastClaim.feeBps / 100}% <span className="ml-2 font-bold text-amber-200">{formatGangster(lastClaim.fee)}</span></p>
+            <p className="text-sm text-slate-400">Wait bonus {lastClaim.bonusBps / 100}% <span className="ml-2 font-bold text-cyan-200">+{formatGangster(lastClaim.bonus)}</span></p>
+            <p className="text-sm text-slate-400">Added to game wallet <span className="ml-2 font-bold text-lime-300">{formatGangster(lastClaim.received)}</span></p>
+          </div>
+          {lastClaim.fee > 0 ? (
+            <p className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-100">
+              Pool fed — {formatGangster(lastClaim.fee)} $GANGSTER just hit the ATM jackpots (1:2:4:18 split).
+            </p>
+          ) : null}
+          {needsUsername ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-cyan-100">Lock your crew code and invite rivals.</p>
+                <p className="mt-1 text-sm text-slate-300">Register a username so referrals and robbery loot bonuses kick in.</p>
+              </div>
+              <Link href="/referral" className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-5 py-2.5 text-sm font-black text-slate-950">
+                <Share2 className="h-4 w-4" /> Claim username
+              </Link>
+            </div>
+          ) : null}
         </section>
       )}
 
       <section className="rounded-[2rem] border border-amber-300/20 bg-amber-300/[0.05] p-6">
-        <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-200">Claim-funded ATM pools</p>
-        <p className="mt-3 max-w-4xl leading-7 text-slate-300">
-          Every dynamic claim fee is routed to the four ATM pools using the 1:2:4:18 distribution.
-        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-200">Claim-funded ATM pools</p>
+            <p className="mt-3 max-w-4xl leading-7 text-slate-300">
+              Every dynamic claim fee feeds the four ATM pools using the 1:2:4:18 distribution. Watch the vaults fill as the hood claims.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-amber-300/25 bg-black/35 px-4 py-3 text-right">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Total in pools</p>
+            <p className="mt-1 text-xl font-black text-amber-100">{formatGangster(totalAtmPools)}</p>
+          </div>
+        </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {["Corner Store ATM", "Nightclub ATM", "Casino Floor ATM", "Downtown Vault ATM"].map((name, index) => (
-            <div key={name} className="rounded-xl border border-white/10 bg-black/30 p-4">
+          {ATM_POOL_NAMES.map((name, index) => (
+            <div key={name} className={`rounded-xl border p-4 ${atmPoolContributions[index] > 0 ? "border-amber-300/35 bg-amber-300/10 animate-atm-glow" : "border-white/10 bg-black/30"}`}>
+              <div className="mb-3 flex justify-center">
+                <AtmMachine
+                  tier={(["low", "medium", "high", "very-high"] as const)[index]}
+                  className="h-20 w-full max-w-[96px]"
+                />
+              </div>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{name}</p>
               <p className="mt-2 text-lg font-black text-amber-100">{formatGangster(atmPoolContributions[index])}</p>
+              <p className="mt-1 text-xs text-slate-500">{usdValue(atmPoolContributions[index], price?.gangsterUsd)}</p>
             </div>
           ))}
         </div>

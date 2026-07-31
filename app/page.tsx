@@ -6,13 +6,14 @@ import { readXSession } from "./lib/x-session";
 import { countTrackedReferrals } from "./lib/player-registry";
 import { getXQuestStatus } from "./lib/x-quest-registry";
 import { XQuestVerification } from "./components/x-quest-verification";
-import { AccessCodeCard } from "./components/access-code-card";
+import { GangsterTokenPanel } from "./components/gangster-token-panel";
+import { GANGSTER_PONS_SWAP_URL } from "./lib/gangster-economy";
 
 const quests = [
   {
     title: "Connect your X account",
     points: "+100",
-    description: "Secure your place on the whitelist with your real X identity.",
+    description: "Link your real X identity to start farming OG points.",
     status: "Required",
   },
   {
@@ -42,14 +43,14 @@ const quests = [
   {
     title: "Bring someone into the hood",
     points: "+0.1×",
-    description: "Share your personal crew link. Every recorded referral permanently adds 0.1× to your whitelist-points multiplier.",
+    description: "Share your personal crew link. Every recorded referral permanently adds 0.1× to your OG-points multiplier.",
     action: "referral",
   },
 ];
 
 export const dynamic = "force-dynamic";
 
-export default async function WhitelistPage() {
+export default async function HomePage() {
   const cookieStore = await cookies();
   const xSession = readXSession(cookieStore.get("hoodatm_x_session")?.value, process.env.HOODATM_SESSION_SECRET);
   const questStatus = xSession ? await getXQuestStatus(xSession.id) : null;
@@ -90,14 +91,18 @@ export default async function WhitelistPage() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/30 bg-black/55 px-3 py-1.5 text-sm font-semibold text-amber-100">
               <Flame className="h-4 w-4 text-red-400" />
-              Whitelist is open
+              Season 1 is live
             </div>
-            <p className="mt-7 text-sm font-bold uppercase tracking-[0.28em] text-lime-200">hoodATM early access</p>
+            <p className="mt-7 text-sm font-bold uppercase tracking-[0.28em] text-lime-200">hoodATM</p>
             <h1 className="mt-3 text-5xl font-black tracking-tight text-white sm:text-6xl">Own the block.<br /><span className="text-red-400">Stack the hood.</span></h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-200">
-              Get on the whitelist to claim your turf. Connect X, complete launch quests, and earn points for your spot in the hoodATM rollout.
+              Idle hustle, rob, and ATM runs on Robinhood Chain. Farm OG points with X quests — top of the board wins OG Gangster.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/create" className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-5 py-3 font-black text-[#10130c] transition hover:bg-lime-200">
+                Start mobbin&apos;
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
               <Link href={xSession ? "#quests" : "/api/auth/x"} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 via-amber-400 to-lime-300 px-5 py-3 font-bold text-[#10130c] transition hover:brightness-110">
                 {xSession ? `Connected @${xSession.username}` : "Connect with X"}
                 <ArrowUpRight className="h-4 w-4" />
@@ -105,13 +110,25 @@ export default async function WhitelistPage() {
               <Link href="/game" className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/45 px-5 py-3 font-semibold text-white transition hover:bg-white/10">
                 See the game
               </Link>
+              <a
+                href={GANGSTER_PONS_SWAP_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-5 py-3 font-semibold text-cyan-100 transition hover:bg-cyan-300/20"
+              >
+                Buy $GANGSTER
+                <ArrowUpRight className="h-4 w-4" />
+              </a>
             </div>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-lime-100/80">
+              Join with $5 ETH initiation and keep at least $5 in $GANGSTER in your wallet. No access code needed.
+            </p>
           </div>
 
           <div className="rounded-[1.75rem] border border-amber-200/25 bg-black/65 p-5 backdrop-blur-sm sm:p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-200">Your whitelist score</p>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-200">Your OG farm score</p>
                 <p className="mt-2 text-5xl font-black text-white">{score} <span className="text-base font-semibold text-lime-300">PTS</span></p>
               </div>
               <div className="rounded-2xl border border-lime-300/20 bg-lime-300/10 p-3 text-lime-200"><Trophy className="h-7 w-7" /></div>
@@ -127,19 +144,23 @@ export default async function WhitelistPage() {
               <span className="font-bold text-amber-200">{pointsMultiplier.toFixed(1)}× points</span>
               <span>Unlimited referral growth</span>
             </div>
-            <p className="mt-3 text-sm text-slate-300">{xSession ? "X connected. Launch quests unlock next." : "Connect X to begin earning points."} Your final rank decides early-access priority.</p>
+            <p className="mt-3 text-sm text-slate-300">
+              {xSession ? "X connected. Keep farming quests." : "Connect X to begin farming points."} Final rank decides who takes OG.
+            </p>
           </div>
         </div>
       </section>
+
+      <GangsterTokenPanel gameAddress={process.env.NEXT_PUBLIC_HOODATM_GAME_ADDRESS} />
 
       <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
         <div id="quests" className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 sm:p-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.24em] text-lime-200">Whitelist quests</p>
-              <h2 className="mt-2 text-3xl font-semibold text-white">Make noise. Earn your place.</h2>
+              <p className="text-sm font-bold uppercase tracking-[0.24em] text-lime-200">OG point quests</p>
+              <h2 className="mt-2 text-3xl font-semibold text-white">Farm points. Win OG.</h2>
             </div>
-            <p className="text-sm text-slate-400">New quests unlock with the launch campaign.</p>
+            <p className="text-sm text-slate-400">Quests are for the OG leaderboard — not a play gate.</p>
           </div>
           <div className="mt-7 space-y-3">
             {quests.map((quest, index) => {
@@ -199,18 +220,26 @@ export default async function WhitelistPage() {
           </section>
           <section className="rounded-[2rem] border border-amber-200/20 bg-slate-950/70 p-6">
             <Sparkles className="h-6 w-6 text-amber-200" />
-            <h2 className="mt-4 text-2xl font-semibold text-white">What you&apos;re earning</h2>
+            <h2 className="mt-4 text-2xl font-semibold text-white">Play anytime</h2>
             <ul className="mt-4 space-y-3 text-sm text-slate-300">
-              {["Early-access priority", "Launch announcement access", "A stronger claim to the block"].map((item) => (
+              {[
+                "No access code to enter",
+                "$5 ETH initiation + $5 $GANGSTER hold",
+                "Quests farm OG points while you play",
+              ].map((item) => (
                 <li key={item} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-lime-300" />{item}</li>
               ))}
             </ul>
+            <Link href="/create" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-600 via-amber-400 to-lime-300 px-5 py-3 font-black text-[#10130c]">
+              Start mobbin&apos; → join
+              <ArrowUpRight className="h-4 w-4" />
+            </Link>
           </section>
           <section className="rounded-[2rem] border border-amber-300/25 bg-[linear-gradient(145deg,rgba(251,191,36,.12),rgba(15,23,42,.82))] p-6">
             <Trophy className="h-7 w-7 text-amber-200" />
-            <h2 className="mt-4 text-2xl font-semibold text-white">Whitelist leaderboard rewards</h2>
+            <h2 className="mt-4 text-2xl font-semibold text-white">OG farm podium</h2>
             <p className="mt-3 text-sm leading-6 text-slate-300">
-              Your final points total sets the podium. Every referral raises your points multiplier, so the strongest crew-building run has the edge.
+              Points decide the podium. Every referral raises your multiplier — strongest crew-building run wins OG.
             </p>
             <ol className="mt-5 space-y-3">
               {[
@@ -225,7 +254,6 @@ export default async function WhitelistPage() {
               ))}
             </ol>
           </section>
-          <AccessCodeCard />
         </aside>
       </section>
     </div>

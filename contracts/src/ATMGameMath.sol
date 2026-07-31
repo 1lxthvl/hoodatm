@@ -84,4 +84,32 @@ contract ATMGameMath {
         if (targetPower * 4 <= attackerPower) return (6_500, 500, 2_500);
         return (5_800, 800, 2_000);
     }
+
+    function earningMultiplierBps(uint256 heat) external pure returns (uint16) {
+        return uint16(10_000 - ((heat / 3) * 100));
+    }
+
+    function claimFeeSplits(uint256 amount)
+        external
+        pure
+        returns (uint256 cornerStore, uint256 nightclub, uint256 casinoFloor, uint256 downtownVault)
+    {
+        cornerStore = amount / 25;
+        nightclub = (amount * 2) / 25;
+        casinoFloor = (amount * 4) / 25;
+        downtownVault = amount - cornerStore - nightclub - casinoFloor;
+    }
+
+    function isValidUsername(string calldata username) external pure returns (bool) {
+        bytes memory raw = bytes(username);
+        uint256 length = raw.length;
+        if (length < 3 || length > 15) return false;
+        for (uint256 i; i < length; ++i) {
+            bytes1 character = raw[i];
+            bool valid = (character >= 0x61 && character <= 0x7a)
+                || (character >= 0x30 && character <= 0x39) || character == 0x5f;
+            if (!valid) return false;
+        }
+        return true;
+    }
 }

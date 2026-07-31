@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Crown, Gavel, Shield, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { Clock3, Crown, Gavel, Shield, ShieldCheck, Users } from "lucide-react";
 import { formatGangster, useMockGang, type GangRank } from "../components/mock-gang-provider";
 
 const gangRanks: GangRank[] = ["Boss", "Underboss", "Enforcer", "Member"];
+const gameLive = process.env.NEXT_PUBLIC_GAME_LIVE === "true";
 
 function remainingJailTime(milliseconds: number) {
   const minutes = Math.max(1, Math.ceil(milliseconds / 60_000));
@@ -55,6 +57,10 @@ export default function GangPage() {
   const validGang = name.trim().length >= 3 && tag.length >= 2;
 
   function submitGang() {
+    if (gameLive) {
+      setStatus("Gang HQ is coming online — create / invite / jailbreak land with the next GangSystem wire-up.");
+      return;
+    }
     setStatus("");
     if (!createGang(name, tag)) {
       setStatus("A valid name, 2–5 character tag, and enough $GANGSTER are required.");
@@ -89,7 +95,31 @@ export default function GangPage() {
         </div>
       </section>
 
-      {!gang ? (
+      {gameLive ? (
+        <section className="rounded-[2rem] border border-amber-300/30 bg-amber-300/[0.08] p-6 sm:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1.5 text-sm font-bold text-amber-100">
+                <Clock3 className="h-4 w-4" /> Coming online
+              </div>
+              <h2 className="mt-4 text-3xl font-black text-white">Gang HQ lands next.</h2>
+              <p className="mt-3 leading-7 text-slate-300">
+                Season 1 is live for hustle, claim, ATM hits, and referrals. Create / invite / jailbreak need the GangSystem wire-up before we flip these switches — so the CTAs stay gated instead of erroring out.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/referral" className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-5 py-3 text-sm font-black text-[#10130c]">
+                <Users className="h-4 w-4" /> Grow via referrals
+              </Link>
+              <Link href="/hustle" className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/35 px-5 py-3 text-sm font-bold text-white">
+                Back to hustle
+              </Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {!gameLive && !gang ? (
         <section className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 sm:p-8">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-violet-200">Claim a gang charter</p>
@@ -140,7 +170,9 @@ export default function GangPage() {
             </div>
           </div>
         </section>
-      ) : (
+      ) : null}
+
+      {!gameLive && gang ? (
         <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/70">
           <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
             <div>
@@ -193,52 +225,54 @@ export default function GangPage() {
             </table>
           </div>
         </section>
-      )}
+      ) : null}
 
-      <section className="rounded-[2rem] border border-red-300/20 bg-red-400/[0.05] p-6 sm:p-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-red-200">
-              <Gavel className="h-4 w-4" /> Gang jail break
-            </div>
-            <h2 className="mt-3 text-3xl font-black text-white">Get your people back on the block.</h2>
-            <p className="mt-3 leading-7 text-slate-300">
-              Pay the live equivalent of $2 ({formatGangster(gangJailbreakCostTokens)} $GANGSTER) for a 25% chance to release a jailed member. The attempt is only available when both players belong to the same gang, and the payment is spent whether it succeeds or fails.
-            </p>
-          </div>
-          <ShieldCheck className="h-10 w-10 text-red-200" />
-        </div>
-
-        <div className="mt-6 space-y-3">
-          {!gang ? (
-            <p className="rounded-2xl border border-white/10 bg-black/25 p-5 text-sm text-slate-400">Create or join a gang before you can fund a member’s release.</p>
-          ) : jailedMembers.length === 0 ? (
-            <p className="rounded-2xl border border-white/10 bg-black/25 p-5 text-sm text-slate-400">No members of your gang are currently behind bars.</p>
-          ) : jailedMembers.map(({ player, playerId }) => (
-            <div key={playerId} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/25 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-black text-white">{player.name}</p>
-                <p className="mt-1 text-sm text-slate-400">Release chance: 25% · same gang verified</p>
+      {!gameLive ? (
+        <section className="rounded-[2rem] border border-red-300/20 bg-red-400/[0.05] p-6 sm:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-red-200">
+                <Gavel className="h-4 w-4" /> Gang jail break
               </div>
-              <button
-                type="button"
-                onClick={() => attemptGangJailbreak(playerId)}
-                disabled={currentPlayer.claimed < gangJailbreakCostTokens}
-                className="rounded-xl bg-red-300 px-5 py-3 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Pay {formatGangster(gangJailbreakCostTokens)} $GANGSTER
-              </button>
+              <h2 className="mt-3 text-3xl font-black text-white">Get your people back on the block.</h2>
+              <p className="mt-3 leading-7 text-slate-300">
+                Pay the live equivalent of $2 ({formatGangster(gangJailbreakCostTokens)} $GANGSTER) for a 25% chance to release a jailed member. The attempt is only available when both players belong to the same gang, and the payment is spent whether it succeeds or fails.
+              </p>
             </div>
-          ))}
-        </div>
-        {lastGangJailbreak ? (
-          <p className={`mt-4 rounded-2xl border p-4 font-semibold ${lastGangJailbreak.freed ? "border-lime-300/25 bg-lime-300/10 text-lime-200" : "border-red-300/25 bg-red-400/10 text-red-200"}`}>
-            {lastGangJailbreak.freed
-              ? `${lastGangJailbreak.memberName} is free. The 25% release roll succeeded.`
-              : `${lastGangJailbreak.memberName} remains jailed. The payment was spent.`}
-          </p>
-        ) : null}
-      </section>
+            <ShieldCheck className="h-10 w-10 text-red-200" />
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {!gang ? (
+              <p className="rounded-2xl border border-white/10 bg-black/25 p-5 text-sm text-slate-400">Create or join a gang before you can fund a member’s release.</p>
+            ) : jailedMembers.length === 0 ? (
+              <p className="rounded-2xl border border-white/10 bg-black/25 p-5 text-sm text-slate-400">No members of your gang are currently behind bars.</p>
+            ) : jailedMembers.map(({ player, playerId }) => (
+              <div key={playerId} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/25 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-black text-white">{player.name}</p>
+                  <p className="mt-1 text-sm text-slate-400">Release chance: 25% · same gang verified</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => attemptGangJailbreak(playerId)}
+                  disabled={currentPlayer.claimed < gangJailbreakCostTokens}
+                  className="rounded-xl bg-red-300 px-5 py-3 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Pay {formatGangster(gangJailbreakCostTokens)} $GANGSTER
+                </button>
+              </div>
+            ))}
+          </div>
+          {lastGangJailbreak ? (
+            <p className={`mt-4 rounded-2xl border p-4 font-semibold ${lastGangJailbreak.freed ? "border-lime-300/25 bg-lime-300/10 text-lime-200" : "border-red-300/25 bg-red-400/10 text-red-200"}`}>
+              {lastGangJailbreak.freed
+                ? `${lastGangJailbreak.memberName} is free. The 25% release roll succeeded.`
+                : `${lastGangJailbreak.memberName} remains jailed. The payment was spent.`}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }
