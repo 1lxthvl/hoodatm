@@ -255,7 +255,6 @@ contract ATMGame is Ownable, ReentrancyGuard {
         if (player.joined) revert AlreadyJoined();
 
         uint256 requiredEth = oracle.quoteEthForUsd(JOIN_USD_E18);
-        if (msg.value < requiredEth) revert InsufficientPayment(requiredEth, msg.value);
         _updateGlobal();
 
         uint256 referralPoolAllocation;
@@ -275,14 +274,7 @@ contract ATMGame is Ownable, ReentrancyGuard {
         totalPower += 1;
         _syncRewardDebt(player);
 
-        (bool sent,) = TREASURY.call{value: requiredEth}("");
-        if (!sent) revert TransferFailed();
-        uint256 refund = msg.value - requiredEth;
-        if (refund != 0) {
-            (bool refunded,) = payable(msg.sender).call{value: refund}("");
-            if (!refunded) revert TransferFailed();
-        }
-
+        _takeEthPayment(requiredEth);
         emit Joined(msg.sender, referrer, requiredEth, referralPoolAllocation);
     }
 
@@ -365,15 +357,7 @@ contract ATMGame is Ownable, ReentrancyGuard {
         ATMGameTypes.Player storage player = players[msg.sender];
         uint256 amount = quoteTierUpgrade(msg.sender, targetTier);
         if (amount > maxEthAmount) revert SlippageExceeded(amount, maxEthAmount);
-        if (msg.value < amount) revert InsufficientPayment(amount, msg.value);
-
-        (bool sent,) = TREASURY.call{value: amount}("");
-        if (!sent) revert TransferFailed();
-        uint256 refund = msg.value - amount;
-        if (refund != 0) {
-            (bool refunded,) = payable(msg.sender).call{value: refund}("");
-            if (!refunded) revert TransferFailed();
-        }
+        _takeEthPayment(amount);
 
         bool firstPaidGangster = !paidGangster[msg.sender];
         paidGangster[msg.sender] = true;
@@ -850,6 +834,19 @@ contract ATMGame is Ownable, ReentrancyGuard {
             reservedAtmPool: reservedAtmPool
         });
         emit ActionCommitted(requestId, msg.sender, kind, target, atmIndex, nonce);
+    }
+
+    function _takeEthPayment(uint256 amount) internal {
+        if (msg.value < amount) revert InsufficientPayment(amount, msg.value);
+        (bool sent,) = TREASURY.call{value: amount}("");
+        if (!sent) revert TransferFailed();
+        unchecked {
+            uint256 refund = msg.value - amount;
+            if (refund != 0) {
+                (bool refunded,) = payable(msg.sender).call{value: refund}("");
+                if (!refunded) revert TransferFailed();
+            }
+        }
     }
 
     function _updateGlobal() internal {
