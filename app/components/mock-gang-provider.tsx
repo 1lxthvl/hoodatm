@@ -486,10 +486,10 @@ export function MockGangProvider({ children }: { children: ReactNode }) {
                 { ...contract, functionName: "jailedUntil", args: [address] },
                 { ...contract, functionName: "currentHeat", args: [address] },
                 { ...contract, functionName: "heatStartedAt", args: [address] },
-                { ...contract, functionName: "atmClaimPools", args: [0n] },
-                { ...contract, functionName: "atmClaimPools", args: [1n] },
-                { ...contract, functionName: "atmClaimPools", args: [2n] },
-                { ...contract, functionName: "atmClaimPools", args: [3n] },
+                { ...contract, functionName: "atmClaimPools", args: [BigInt(0)] },
+                { ...contract, functionName: "atmClaimPools", args: [BigInt(1)] },
+                { ...contract, functionName: "atmClaimPools", args: [BigInt(2)] },
+                { ...contract, functionName: "atmClaimPools", args: [BigInt(3)] },
               ],
             });
           if (!active) return;
